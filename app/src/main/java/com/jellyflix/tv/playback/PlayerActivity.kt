@@ -5,23 +5,34 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -32,8 +43,12 @@ import com.jellyflix.tv.ui.theme.JellyflixTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+
+/** Which track picker is open over the controls. */
+private enum class TrackKind { SUBTITLES, AUDIO }
 
 @OptIn(UnstableApi::class)
 @AndroidEntryPoint
@@ -43,6 +58,9 @@ class PlayerActivity : ComponentActivity() {
     @Inject lateinit var pluginHost: PluginHost
 
     private var player: ExoPlayer? = null
+
+    /** Bumped on every key press so the overlay restarts its idle timer. */
+    private var inputTick by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,13 +74,22 @@ class PlayerActivity : ComponentActivity() {
     @Composable
     private fun PlayerSurface(itemId: UUID, title: String) {
         val ctx = this@PlayerActivity
-        var format by remember { mutableStateOf<androidx.media3.common.Format?>(null) }
+        var format by remember { mutableStateOf<Format?>(null) }
+        var exoState by remember { mutableStateOf<ExoPlayer?>(null) }
+        val ui = remember { PlaybackUi() }
+
+        var controlsVisible by remember { mutableStateOf(true) }
+        var openPanel by remember { mutableStateOf<TrackKind?>(null) }
+        var panelChoices by remember { mutableStateOf<List<TrackChoice>>(emptyList()) }
+        val playFocus = remember { FocusRequester() }
+        val panelFocus = remember { FocusRequester() }
 
         DisposableEffect(itemId) {
             val exo = buildPlayer(ctx)
             player = exo
+            exoState = exo
             val listener = object : Player.Listener {
-                override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                override fun onVideoSizeChanged(size: VideoSize) {
                     PlaybackOptimizer.matchRefreshRate(window, ctx, exo.videoFormat)
                     format = exo.videoFormat
                 }
@@ -88,20 +115,95 @@ class PlayerActivity : ComponentActivity() {
                 exo.removeListener(listener)
                 exo.release()
                 player = null
+                exoState = null
             }
         }
 
-        AndroidView(
-            modifier = Modifier.fillMaxSize().background(Color.Black),
-            factory = { c ->
-                PlayerView(c).apply {
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    useController = true
-                    controllerShowTimeoutMs = 3000
+        PlaybackPoller(player = exoState, ui = ui)
+
+        // Controls stay up while paused or while a picker is open. While playing they hide
+        // after CONTROLS_IDLE_MS with no input. Any key press restarts the timer.
+        LaunchedEffect(inputTick, openPanel, ui.playing) {
+            controlsVisible = true
+            if (ui.playing && openPanel == null) {
+                delay(CONTROLS_IDLE_MS)
+                controlsVisible = false
+            }
+        }
+
+        // When the bar appears, focus Play so DPAD-centre works on it straight away.
+        LaunchedEffect(controlsVisible) {
+            if (controlsVisible && openPanel == null) runCatching { playFocus.requestFocus() }
+        }
+
+        LaunchedEffect(openPanel) {
+            if (openPanel != null) runCatching { panelFocus.requestFocus() }
+        }
+
+        BackHandler {
+            if (openPanel != null) openPanel = null else finish()
+        }
+
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { c ->
+                    PlayerView(c).apply {
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        // The Compose overlay replaces the built-in controller.
+                        useController = false
+                    }
+                },
+                update = { it.player = player },
+            )
+
+            PlayerControlsOverlay(
+                visible = controlsVisible,
+                title = title,
+                ui = ui,
+                onPlayPause = { togglePlay() },
+                onOpenSubtitles = {
+                    exoState?.let { panelChoices = trackChoices(it, C.TRACK_TYPE_TEXT, offLabel = "Off") }
+                    openPanel = TrackKind.SUBTITLES
+                },
+                onOpenAudio = {
+                    exoState?.let { panelChoices = trackChoices(it, C.TRACK_TYPE_AUDIO, offLabel = null) }
+                    openPanel = TrackKind.AUDIO
+                },
+                onSeekStep = { forward ->
+                    inputTick++
+                    exoState?.let { if (forward) it.seekForward() else it.seekBack() }
+                },
+                playFocus = playFocus,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            openPanel?.let { kind ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                    TrackPanel(
+                        title = if (kind == TrackKind.SUBTITLES) "Subtitles" else "Audio",
+                        choices = panelChoices,
+                        firstItemFocus = panelFocus,
+                        onPick = { choice ->
+                            exoState?.let { exo ->
+                                selectTrack(
+                                    exo,
+                                    if (kind == TrackKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO,
+                                    choice,
+                                )
+                            }
+                            openPanel = null
+                        },
+                        onDismiss = { openPanel = null },
+                        modifier = Modifier.padding(end = 56.dp, bottom = 140.dp),
+                    )
                 }
-            },
-            update = { it.player = player },
-        )
+            }
+        }
+    }
+
+    private fun togglePlay() {
+        player?.let { if (it.isPlaying) it.pause() else it.play() }
     }
 
     private fun buildPlayer(ctx: Context): ExoPlayer {
@@ -118,11 +220,17 @@ class PlayerActivity : ComponentActivity() {
             }
     }
 
+    /**
+     * Remote keys that reach the activity: the overlay's focusable controls consume DPAD
+     * when the bar is up, so these run when it is hidden or when a key has no focus target
+     * (for example, left/right at the edge of the bar seeks).
+     */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val p = player
-        if (p != null) when (keyCode) {
+        inputTick++
+        val p = player ?: return super.onKeyDown(keyCode, event)
+        when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                if (p.isPlaying) p.pause() else p.play()
+                togglePlay()
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_DPAD_LEFT -> { p.seekBack(); return true }

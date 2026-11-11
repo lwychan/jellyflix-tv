@@ -105,6 +105,7 @@ private fun App(appContext: Context, sessionVm: SessionViewModel = hiltViewModel
             HomeScreen(
                 onOpenLibrary = { id -> nav.navigate(Routes.library(id)) },
                 onOpenDetails = openDetails,
+                onPlay = openPlayer,
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
             )
         }

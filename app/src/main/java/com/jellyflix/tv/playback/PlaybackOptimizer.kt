@@ -7,6 +7,7 @@ import android.view.Display
 import android.view.Window
 import android.view.WindowManager
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Format
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -40,7 +41,7 @@ object PlaybackOptimizer {
      * wired with a DefaultTrackSelector.
      */
     fun trackParameters(context: Context): TrackSelectionParameters {
-        val caps = AudioCapabilities.getCapabilities(context)
+        val caps = AudioCapabilities.getCapabilities(context, AudioAttributes.DEFAULT, null)
         return TrackSelectionParameters.Builder(context)
             .setMaxAudioChannelCount(if (caps.maxChannelCount > 0) caps.maxChannelCount else 8)
             .build()

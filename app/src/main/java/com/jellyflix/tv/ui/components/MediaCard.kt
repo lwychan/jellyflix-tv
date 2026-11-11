@@ -1,6 +1,8 @@
 package com.jellyflix.tv.ui.components
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,30 +11,49 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.jellyflix.tv.data.ImageUrls
 import org.jellyfin.sdk.model.api.BaseItemDto
 
 private val CardShape = RoundedCornerShape(12.dp)
-private val FocusRing = Color(0xFF7E5BEF)
+private const val FocusScale = 1.15f
+private const val FocusShadowDp = 18f
 
+/**
+ * Netflix-style poster card.
+ *
+ * Focus behaviour:
+ * - scales to [FocusScale] on a spring, so it grows past its neighbours,
+ * - lifts above them (zIndex) with a soft shadow, so nothing is clipped,
+ * - shows a subtle white outline.
+ *
+ * [onDpadUp] lets a row take over DPAD-up, e.g. to scroll the page to the hero first.
+ */
 @Composable
 fun MediaCard(
     item: BaseItemDto,
@@ -40,32 +61,64 @@ fun MediaCard(
     modifier: Modifier = Modifier,
     widthDp: Int = 180,
     heightDp: Int = 270,
+    /** Reports focus gain (true) and loss (false) for this card's item. */
+    onFocusChange: ((BaseItemDto, Boolean) -> Unit)? = null,
+    /** Called on DPAD-up. When set, the key is consumed. */
+    onDpadUp: (() -> Unit)? = null,
 ) {
     // Request at ~3x logical width so the TV's pixel density doesn't over-sample.
     val posterUrl = remember(item.id, widthDp) { ImageUrls.primary(item, maxWidth = widthDp * 3) }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+
+    LaunchedEffect(focused, item.id) {
+        onFocusChange?.invoke(item, focused)
+    }
+
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.05f else 1f,
-        animationSpec = tween(120),
+        targetValue = if (focused) FocusScale else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "card-scale",
     )
+    val outlineAlpha by animateFloatAsState(
+        targetValue = if (focused) 0.9f else 0f,
+        animationSpec = tween(150),
+        label = "card-outline",
+    )
+    val shadow by animateFloatAsState(
+        targetValue = if (focused) FocusShadowDp else 0f,
+        animationSpec = tween(200),
+        label = "card-shadow",
+    )
 
-    Column(modifier = modifier.width(widthDp.dp)) {
+    Column(
+        modifier = modifier
+            .width(widthDp.dp)
+            // Lift the focused card above its neighbours so the enlarged poster overlaps them.
+            .zIndex(if (focused) 1f else 0f)
+            .onPreviewKeyEvent { event ->
+                if (onDpadUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                    onDpadUp()
+                    true
+                } else {
+                    false
+                }
+            }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = shadow
+                shape = CardShape
+                clip = false
+            },
+    ) {
         Box(
             modifier = Modifier
                 .width(widthDp.dp)
                 .height(heightDp.dp)
-                // Use graphicsLayer for scale — cheaper than Modifier.scale because
-                // it hints the compositor to use a render layer.
-                .graphicsLayer(scaleX = scale, scaleY = scale)
                 .clip(CardShape)
                 .background(Color(0xFF1C2130))
-                .border(
-                    width = if (focused) 2.dp else 0.dp,
-                    color = if (focused) FocusRing else Color.Transparent,
-                    shape = CardShape,
-                )
+                .border(width = 1.5.dp, color = Color.White.copy(alpha = outlineAlpha), shape = CardShape)
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
@@ -83,6 +136,25 @@ fun MediaCard(
                     color = Color(0xFFA8ADBD),
                 )
             }
+            // Netflix-style resume bar along the bottom edge of partly watched titles.
+            item.userData?.playedPercentage
+                ?.takeIf { it > 0.0 && it < 100.0 }
+                ?.let { played ->
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(Color(0x66FFFFFF)),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth((played / 100.0).toFloat())
+                                .fillMaxHeight()
+                                .background(Color(0xFFE50914)),
+                        )
+                    }
+                }
         }
         androidx.tv.material3.Text(
             text = item.name.orEmpty(),
@@ -93,7 +165,3 @@ fun MediaCard(
         )
     }
 }
-
-// Keep the deprecated reference for older code paths; noop suppress.
-@Suppress("UNUSED")
-private fun Modifier.noScale() = this.scale(1f)

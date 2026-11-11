@@ -64,6 +64,47 @@ class MediaRepository @Inject constructor(
         ).content.items.orEmpty()
     }.getOrDefault(emptyList())
 
+    /** The signed-in user's favorites, shown as "My List". */
+    suspend fun favorites(limit: Int = 200): List<BaseItemDto> = runCatching {
+        val api = client.api()
+        api.itemsApi.getItems(
+            userId = currentUserId(),
+            isFavorite = true,
+            recursive = true,
+            limit = limit,
+            includeItemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES),
+            sortBy = listOf(ItemSortBy.SORT_NAME),
+            sortOrder = listOf(SortOrder.ASCENDING),
+        ).content.items.orEmpty()
+    }.getOrDefault(emptyList())
+
+    /** Every movie or every series in the library, sorted by name, for the Movies and TV Shows tabs. */
+    suspend fun allOfKind(kind: BaseItemKind, limit: Int = 1000): List<BaseItemDto> = runCatching {
+        val api = client.api()
+        api.itemsApi.getItems(
+            userId = currentUserId(),
+            recursive = true,
+            limit = limit,
+            includeItemTypes = listOf(kind),
+            sortBy = listOf(ItemSortBy.SORT_NAME),
+            sortOrder = listOf(SortOrder.ASCENDING),
+        ).content.items.orEmpty()
+    }.getOrDefault(emptyList())
+
+    /** Library-wide title search (movies and series). */
+    suspend fun search(term: String, limit: Int = 60): List<BaseItemDto> = runCatching {
+        val api = client.api()
+        api.itemsApi.getItems(
+            userId = currentUserId(),
+            searchTerm = term,
+            recursive = true,
+            limit = limit,
+            includeItemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES),
+            sortBy = listOf(ItemSortBy.SORT_NAME),
+            sortOrder = listOf(SortOrder.ASCENDING),
+        ).content.items.orEmpty()
+    }.getOrDefault(emptyList())
+
     suspend fun item(id: UUID): BaseItemDto {
         val api = client.api()
         return api.userLibraryApi.getItem(userId = currentUserId(), itemId = id).content
