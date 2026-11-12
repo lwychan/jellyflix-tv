@@ -32,7 +32,7 @@ but not right yet. **To do** = not started.
 9. **Search.** As a viewer, I type into a search box and see results as I type, without a
    keyboard popping up before I choose the field. *Partial: results appear after a short pause;
    confirm keyboard behaviour on the TV.*
-10. **See my list.** As a viewer, My List shows the titles I have marked as favourites. *Done.*
+10. **See what's new.** As a viewer, Home has Recently added TV shows and Recently added movies rows under Continue watching. *Done.* (My List was removed: there is no way to add or remove titles yet.)
 
 ## Title page
 

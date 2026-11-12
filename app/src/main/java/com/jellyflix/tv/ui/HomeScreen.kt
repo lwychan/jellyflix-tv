@@ -82,7 +82,6 @@ private object HomeTabs {
     const val HOME = "home"
     const val TV_SHOWS = "tv_shows"
     const val MOVIES = "movies"
-    const val MY_LIST = "my_list"
 }
 
 @Composable
@@ -102,7 +101,6 @@ fun HomeScreen(
             NavTab(HomeTabs.HOME, "Home"),
             NavTab(HomeTabs.TV_SHOWS, "TV Shows"),
             NavTab(HomeTabs.MOVIES, "Movies"),
-            NavTab(HomeTabs.MY_LIST, "My List"),
         )
     }
 
@@ -132,7 +130,6 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     LaunchedEffect(tab) {
         listState.scrollToItem(0)
-        if (tab == HomeTabs.MY_LIST) vm.refreshFavorites()
     }
 
     // === Going down into the page from the nav or from the top row ===
@@ -237,13 +234,6 @@ fun HomeScreen(
                         onUpToNav = onUpToNav,
                         navFocus = navFocusRequester,
                     )
-                    HomeTabs.MY_LIST -> MyListTab(
-                        state = state,
-                        listState = listState,
-                        onOpenDetails = onOpenDetails,
-                        firstFocus = gridFocusRequester,
-                        onUpToNav = onUpToNav,
-                    )
                 }
             }
 
@@ -304,14 +294,13 @@ private fun HomeTab(
             )
         }
 
-        // Rows in Netflix's order: what you're watching, what's new, then your own list.
+        // Rows in Netflix's order: what you're watching, then what's new.
         // The top row (first on screen) sends DPAD-up to the hero.
         val rows = buildList {
             if (state.continueWatching.isNotEmpty()) add(HomeRow("Continue watching", state.continueWatching, landscape = true))
             if (state.nextUp.isNotEmpty()) add(HomeRow("Next up", state.nextUp, landscape = true))
             if (state.recentShows.isNotEmpty()) add(HomeRow("Recently added TV shows", state.recentShows))
             if (state.recentMovies.isNotEmpty()) add(HomeRow("Recently added movies", state.recentMovies))
-            if (state.favorites.isNotEmpty()) add(HomeRow("My List", state.favorites))
         }
         rows.forEachIndexed { index, row ->
             item(key = row.title) {
@@ -527,37 +516,7 @@ private fun SearchKey(
     }
 }
 
-@Composable
-private fun MyListTab(
-    state: HomeViewModel.State,
-    listState: LazyListState,
-    onOpenDetails: (String) -> Unit,
-    firstFocus: FocusRequester,
-    onUpToNav: () -> Unit,
-) {
-    PosterGrid(
-        items = state.favorites,
-        listState = listState,
-        firstFocus = firstFocus,
-        onUpToNav = onUpToNav,
-        emptyText = if (state.loading) {
-            "Loading your list…"
-        } else {
-            "Titles you mark as favorite in Jellyfin appear here."
-        },
-        onOpenDetails = onOpenDetails,
-        header = {
-            Text(
-                "My List",
-                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 20.dp),
-            )
-        },
-    )
-}
-
-/** Vertical list of poster rows, six per row. Used by Search and My List. */
+/** Vertical list of poster carousels. Used by the TV Shows and Movies tabs. */
 @Composable
 private fun PosterGrid(
     items: List<BaseItemDto>,
@@ -624,8 +583,8 @@ private fun RowSection(
                     onClick = { onClick(item.id.toString()) },
                     onFocusChange = onFocusChange,
                     onDpadUp = onDpadUp,
-                    widthDp = if (landscape) 280 else 180,
-                    heightDp = if (landscape) 158 else 270,
+                    widthDp = if (landscape) 187 else 120,
+                    heightDp = if (landscape) 105 else 180,
                     label = cardTitle(item),
                     subtitle = cardSubtitle(item),
                 )
@@ -671,8 +630,8 @@ private fun LibraryRow(
                     item = lib,
                     onClick = { onOpen(lib.id.toString()) },
                     onFocusChange = onFocusChange,
-                    widthDp = 240,
-                    heightDp = 140,
+                    widthDp = 160,
+                    heightDp = 93,
                     onDpadUp = onDpadUp,
                 )
             }

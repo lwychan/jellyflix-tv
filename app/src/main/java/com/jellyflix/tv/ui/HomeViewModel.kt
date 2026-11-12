@@ -27,7 +27,6 @@ class HomeViewModel @Inject constructor(
         val continueWatching: List<BaseItemDto> = emptyList(),
         val nextUp: List<BaseItemDto> = emptyList(),
         val libraries: List<BaseItemDto> = emptyList(),
-        val favorites: List<BaseItemDto> = emptyList(),
         val movies: List<BaseItemDto> = emptyList(),
         val shows: List<BaseItemDto> = emptyList(),
         val recentShows: List<BaseItemDto> = emptyList(),
@@ -54,7 +53,6 @@ class HomeViewModel @Inject constructor(
             val libsJob = async { runCatching { repo.libraries() }.getOrDefault(emptyList()) }
             val cwJob = async { runCatching { repo.continueWatching() }.getOrDefault(emptyList()) }
             val nuJob = async { runCatching { repo.nextUp() }.getOrDefault(emptyList()) }
-            val favJob = async { runCatching { repo.favorites() }.getOrDefault(emptyList()) }
             val moviesJob = async { repo.allOfKind(BaseItemKind.MOVIE) }
             val showsJob = async { repo.allOfKind(BaseItemKind.SERIES) }
             val recentShowsJob = async { repo.recentlyAdded(BaseItemKind.SERIES) }
@@ -64,7 +62,6 @@ class HomeViewModel @Inject constructor(
                     continueWatching = cwJob.await(),
                     nextUp = nuJob.await(),
                     libraries = libsJob.await(),
-                    favorites = favJob.await(),
                     movies = moviesJob.await(),
                     shows = showsJob.await(),
                     recentShows = recentShowsJob.await(),
@@ -76,12 +73,6 @@ class HomeViewModel @Inject constructor(
             Timber.e(t, "Failed to load home")
             _state.update { it.copy(loading = false, error = t.localizedMessage) }
         }
-    }
-
-    /** Re-fetches My List, e.g. when the user opens that tab. */
-    fun refreshFavorites() = viewModelScope.launch(Dispatchers.IO) {
-        val favorites = runCatching { repo.favorites() }.getOrDefault(emptyList())
-        _state.update { it.copy(favorites = favorites) }
     }
 
     /** Updates the query immediately and searches after a short pause in typing. */

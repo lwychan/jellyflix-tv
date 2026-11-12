@@ -67,20 +67,6 @@ class MediaRepository @Inject constructor(
         ).content.items.orEmpty()
     }.getOrDefault(emptyList())
 
-    /** The signed-in user's favorites, shown as "My List". */
-    suspend fun favorites(limit: Int = 200): List<BaseItemDto> = runCatching {
-        val api = client.api()
-        api.itemsApi.getItems(
-            userId = currentUserId(),
-            isFavorite = true,
-            recursive = true,
-            limit = limit,
-            includeItemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES),
-            sortBy = listOf(ItemSortBy.SORT_NAME),
-            sortOrder = listOf(SortOrder.ASCENDING),
-        ).content.items.orEmpty()
-    }.getOrDefault(emptyList())
-
     /** Every movie or every series in the library, sorted by name, for the Movies and TV Shows tabs. */
     suspend fun allOfKind(kind: BaseItemKind, limit: Int = 1000): List<BaseItemDto> = runCatching {
         val api = client.api()

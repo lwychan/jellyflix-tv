@@ -59,8 +59,8 @@ fun MediaCard(
     item: BaseItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    widthDp: Int = 180,
-    heightDp: Int = 270,
+    widthDp: Int = 120,
+    heightDp: Int = 180,
     /** Reports focus gain (true) and loss (false) for this card's item. */
     onFocusChange: ((BaseItemDto, Boolean) -> Unit)? = null,
     /** Called on DPAD-up. When set, the key is consumed. */
@@ -166,7 +166,9 @@ fun MediaCard(
         }
         androidx.tv.material3.Text(
             text = label ?: item.name.orEmpty(),
-            style = androidx.tv.material3.MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+            // Small posters get the smaller label so more of the title fits.
+            style = (if (widthDp < 160) androidx.tv.material3.MaterialTheme.typography.labelMedium else androidx.tv.material3.MaterialTheme.typography.labelLarge)
+                .copy(fontWeight = FontWeight.Medium),
             color = if (focused) Color.White else Color(0xFFE5E5E5),
             maxLines = 1,
             modifier = Modifier.padding(top = 8.dp).width(widthDp.dp),
