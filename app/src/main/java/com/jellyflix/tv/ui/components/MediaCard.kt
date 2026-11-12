@@ -65,6 +65,8 @@ fun MediaCard(
     onFocusChange: ((BaseItemDto, Boolean) -> Unit)? = null,
     /** Called on DPAD-up. When set, the key is consumed. */
     onDpadUp: (() -> Unit)? = null,
+    /** When true, DPAD-right is consumed here, so focus stops at the end of a carousel row. */
+    blockRight: Boolean = false,
     /** Text under the card. Defaults to the item name. */
     label: String? = null,
     /** Smaller grey line under the label, e.g. "S1 E4 · Episode title". */
@@ -101,11 +103,13 @@ fun MediaCard(
             // Lift the focused card above its neighbours so the enlarged poster overlaps them.
             .zIndex(if (focused) 1f else 0f)
             .onPreviewKeyEvent { event ->
-                if (onDpadUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                    onDpadUp()
-                    true
-                } else {
-                    false
+                when {
+                    onDpadUp != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp -> {
+                        onDpadUp()
+                        true
+                    }
+                    blockRight && event.key == Key.DirectionRight -> true
+                    else -> false
                 }
             }
             .graphicsLayer {

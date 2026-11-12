@@ -35,8 +35,14 @@ class DetailsViewModel @Inject constructor(
         _state.value = _state.value.copy(loading = true, error = null)
         try {
             val id = UUID.fromString(rawId)
-            val item = repo.item(id)
-            val eps = if (item.type == BaseItemKind.SERIES) fetchEpisodes(id) else emptyList()
+            val requested = repo.item(id)
+            // An episode opens its show's page, as on Netflix.
+            val item = if (requested.type == BaseItemKind.EPISODE && requested.seriesId != null) {
+                repo.item(requested.seriesId!!)
+            } else {
+                requested
+            }
+            val eps = if (item.type == BaseItemKind.SERIES) fetchEpisodes(item.id) else emptyList()
             _state.value = State(item = item, episodes = eps, loading = false)
         } catch (t: Throwable) {
             _state.value = _state.value.copy(loading = false, error = t.localizedMessage)

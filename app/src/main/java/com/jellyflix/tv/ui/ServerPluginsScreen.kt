@@ -47,7 +47,15 @@ class ServerPluginsViewModel @Inject constructor(
         _state.value = _state.value.copy(loading = true, error = null)
         repo.serverPlugins().fold(
             onSuccess = { _state.value = State(plugins = it, loading = false) },
-            onFailure = { _state.value = State(loading = false, error = it.localizedMessage ?: "Failed") },
+            onFailure = {
+                // A 403 means the account is not a server administrator, which is the usual cause.
+                val message = if (it.localizedMessage?.contains("403") == true) {
+                    "Only server administrators can list plugins."
+                } else {
+                    it.localizedMessage ?: "Failed"
+                }
+                _state.value = State(loading = false, error = message)
+            },
         )
     }
 }

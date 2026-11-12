@@ -43,10 +43,21 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.jellyflix.tv.data.JellyfinClient
 import com.jellyflix.tv.plugin.PluginHost
+import org.jellyfin.sdk.api.client.extensions.playStateApi
+import org.jellyfin.sdk.model.api.PlayMethod
+import org.jellyfin.sdk.model.api.PlaybackOrder
+import org.jellyfin.sdk.model.api.RepeatMode
+import org.jellyfin.sdk.model.api.PlaybackProgressInfo
+import org.jellyfin.sdk.model.api.PlaybackStartInfo
+import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import com.jellyflix.tv.ui.theme.JellyflixTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -65,6 +76,14 @@ class PlayerActivity : ComponentActivity() {
     private var httpFactory: DefaultHttpDataSource.Factory? = null
 
     private var player: ExoPlayer? = null
+    private var startMs: Long = 0L
+
+    // Playback reporting, so Jellyfin knows where the viewer got to (Continue watching, resume).
+    private var itemIdForReport: UUID? = null
+    private var mediaSourceForReport: String? = null
+    private var playMethodForReport: PlayMethod = PlayMethod.DIRECT_PLAY
+    private var progressJob: Job? = null
+    private val reportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Bumped on every key press so the overlay restarts its idle timer. */
     private var inputTick by mutableIntStateOf(0)
@@ -74,6 +93,8 @@ class PlayerActivity : ComponentActivity() {
         val itemId = intent.getStringExtra(EXTRA_ITEM_ID)?.let(UUID::fromString)
             ?: run { finish(); return }
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        startMs = intent.getLongExtra(EXTRA_START_MS, 0L)
+        itemIdForReport = itemId
 
         setContent { JellyflixTheme { PlayerSurface(itemId, title) } }
     }
@@ -128,10 +149,20 @@ class PlayerActivity : ComponentActivity() {
                         MediaItem.Builder()
                             .setUri(stream.url)
                             .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
-                            .build()
+                            .build(),
+                        startMs,
                     )
+                    mediaSourceForReport = stream.mediaSource.id
+                    playMethodForReport = if (stream.isDirectPlay) PlayMethod.DIRECT_PLAY else PlayMethod.TRANSCODE
                     exo.prepare()
                     exo.playWhenReady = true
+                    reportStart(exo.currentPosition)
+                    progressJob = lifecycleScope.launch {
+                        while (true) {
+                            delay(10_000)
+                            reportProgress(exo.currentPosition, paused = !exo.isPlaying)
+                        }
+                    }
                 }.onFailure {
                     Timber.e(it, "Playback start failed")
                     Log.e(TAG, "Playback start failed", it)
@@ -140,6 +171,8 @@ class PlayerActivity : ComponentActivity() {
             }
 
             onDispose {
+                progressJob?.cancel()
+                reportStop(exo.currentPosition)
                 exo.removeListener(listener)
                 exo.release()
                 player = null
@@ -289,16 +322,76 @@ class PlayerActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onStop() { super.onStop(); player?.pause() }
+    override fun onStop() {
+        super.onStop()
+        player?.let { p ->
+            p.pause()
+            reportProgress(p.currentPosition, paused = true)
+        }
+    }
+
+    private fun reportStart(positionMs: Long) = reportScope.launch {
+        val id = itemIdForReport ?: return@launch
+        runCatching {
+            client.api().playStateApi.reportPlaybackStart(
+                data = PlaybackStartInfo(
+                    itemId = id,
+                    mediaSourceId = mediaSourceForReport,
+                    positionTicks = positionMs * 10_000L,
+                    playMethod = playMethodForReport,
+                    canSeek = true,
+                    isPaused = false,
+                    isMuted = false,
+                    repeatMode = RepeatMode.REPEAT_NONE,
+                    playbackOrder = PlaybackOrder.DEFAULT,
+                ),
+            )
+        }.onFailure { Timber.w(it, "Reporting playback start failed") }
+    }
+
+    private fun reportProgress(positionMs: Long, paused: Boolean) = reportScope.launch {
+        val id = itemIdForReport ?: return@launch
+        runCatching {
+            client.api().playStateApi.reportPlaybackProgress(
+                data = PlaybackProgressInfo(
+                    itemId = id,
+                    mediaSourceId = mediaSourceForReport,
+                    positionTicks = positionMs * 10_000L,
+                    isPaused = paused,
+                    playMethod = playMethodForReport,
+                    canSeek = true,
+                    isMuted = false,
+                    repeatMode = RepeatMode.REPEAT_NONE,
+                    playbackOrder = PlaybackOrder.DEFAULT,
+                ),
+            )
+        }.onFailure { Timber.w(it, "Reporting playback progress failed") }
+    }
+
+    private fun reportStop(positionMs: Long) = reportScope.launch {
+        val id = itemIdForReport ?: return@launch
+        runCatching {
+            client.api().playStateApi.reportPlaybackStopped(
+                data = PlaybackStopInfo(
+                    itemId = id,
+                    mediaSourceId = mediaSourceForReport,
+                    positionTicks = positionMs * 10_000L,
+                    failed = false,
+                ),
+            )
+        }.onFailure { Timber.w(it, "Reporting playback stop failed") }
+    }
 
     companion object {
         private const val TAG = "JellyflixPlayer"
         private const val EXTRA_ITEM_ID = "itemId"
         private const val EXTRA_TITLE = "title"
-        fun intent(ctx: Context, itemId: UUID, title: String) =
+        private const val EXTRA_START_MS = "startMs"
+        fun intent(ctx: Context, itemId: UUID, title: String, startMs: Long = 0L) =
             Intent(ctx, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_ITEM_ID, itemId.toString())
                 putExtra(EXTRA_TITLE, title)
+                putExtra(EXTRA_START_MS, startMs)
             }
     }
 }

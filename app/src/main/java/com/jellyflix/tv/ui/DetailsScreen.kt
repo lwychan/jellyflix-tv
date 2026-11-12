@@ -51,7 +51,7 @@ import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 
 private val EdgePad = 56.dp
-private val TopSectionHeight = 560.dp
+private val TopSectionHeight = 250.dp
 
 /**
  * Title page. Top: backdrop, title, facts, synopsis and Play. Bottom (series only): season chips
@@ -60,7 +60,7 @@ private val TopSectionHeight = 560.dp
 @Composable
 fun DetailsScreen(
     itemId: String,
-    onPlay: (itemId: String, title: String) -> Unit,
+    onPlay: (itemId: String, title: String, startMs: Long) -> Unit,
     onBack: () -> Unit,
     vm: DetailsViewModel = hiltViewModel(),
 ) {
@@ -161,13 +161,16 @@ fun DetailsScreen(
                                 it,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = Color(0xFFE5E5E5),
-                                maxLines = 3,
+                                maxLines = 2,
                                 modifier = Modifier.padding(top = 10.dp),
                             )
                         }
                         Spacer(Modifier.height(16.dp))
                         Button(
-                            onClick = { onPlay(item.id.toString(), item.name.orEmpty()) },
+                            onClick = {
+                                val target = if (isSeries) nextEpisode(state.episodes) ?: item else item
+                                onPlay(target.id.toString(), target.name.orEmpty(), target.resumeMs())
+                            },
                             modifier = Modifier.height(44.dp).widthIn(min = 150.dp).focusRequester(playFocus),
                             colors = ButtonDefaults.colors(
                                 containerColor = Color.White,
@@ -197,7 +200,7 @@ fun DetailsScreen(
                             .padding(top = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (seasons.size > 1) {
+                        if (seasons.isNotEmpty()) {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = EdgePad),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -218,10 +221,10 @@ fun DetailsScreen(
                             items(episodesInSeason, key = { it.id.toString() }) { ep ->
                                 MediaCard(
                                     item = ep,
-                                    widthDp = 260,
-                                    heightDp = 146,
+                                    widthDp = 200,
+                                    heightDp = 113,
                                     label = episodeLabel(ep),
-                                    onClick = { onPlay(ep.id.toString(), ep.name.orEmpty()) },
+                                    onClick = { onPlay(ep.id.toString(), ep.name.orEmpty(), ep.resumeMs()) },
                                 )
                             }
                         }
@@ -231,6 +234,16 @@ fun DetailsScreen(
         }
     }
 }
+
+/** The episode Play should start: one part-watched, else the first unwatched, else the first. */
+private fun nextEpisode(episodes: List<BaseItemDto>): BaseItemDto? {
+    val ordered = episodes.sortedWith(compareBy({ it.parentIndexNumber ?: Int.MAX_VALUE }, { it.indexNumber ?: Int.MAX_VALUE }))
+    return ordered.firstOrNull { (it.userData?.playbackPositionTicks ?: 0L) > 0L && it.userData?.played != true }
+        ?: ordered.firstOrNull { it.userData?.played != true }
+        ?: ordered.firstOrNull()
+}
+
+private fun BaseItemDto.resumeMs(): Long = (userData?.playbackPositionTicks ?: 0L) / 10_000L
 
 private fun episodeLabel(ep: BaseItemDto): String {
     val number = ep.indexNumber?.let { "$it. " }.orEmpty()

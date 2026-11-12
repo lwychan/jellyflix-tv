@@ -71,9 +71,9 @@ private fun App(appContext: Context, sessionVm: SessionViewModel = hiltViewModel
     }
 
     val openDetails: (String) -> Unit = { id -> nav.navigate(Routes.details(id)) }
-    val openPlayer: (String, String) -> Unit = { id, title ->
+    val openPlayer: (String, String, Long) -> Unit = { id, title, startMs ->
         appContext.startActivity(
-            PlayerActivity.intent(appContext, UUID.fromString(id), title)
+            PlayerActivity.intent(appContext, UUID.fromString(id), title, startMs)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }

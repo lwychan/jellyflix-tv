@@ -44,6 +44,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.jellyflix.tv.data.ImageUrls
 import org.jellyfin.sdk.model.api.BaseItemDto
+import org.jellyfin.sdk.model.api.BaseItemKind
 
 /** Page background. The hero's bottom gradient dissolves into this colour. */
 val PageBlack = Color(0xFF141414)
@@ -192,7 +193,7 @@ private fun HeroCopy(item: BaseItemDto) {
     // Episode name, when it differs from the show title.
     item.name?.takeIf { it.isNotBlank() && it != item.seriesName }?.let {
         Text(
-            it,
+            episodeLine(item, it),
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium),
             color = Color(0xFFE5E5E5),
             maxLines = 1,
@@ -211,6 +212,16 @@ private fun HeroCopy(item: BaseItemDto) {
             modifier = Modifier.padding(top = 12.dp),
         )
     }
+}
+
+/** "S1 E4 · Title" for episodes, so the hero says which episode it is. */
+private fun episodeLine(item: BaseItemDto, title: String): String {
+    if (item.type != BaseItemKind.EPISODE) return title
+    val code = listOfNotNull(
+        item.parentIndexNumber?.let { "S$it" },
+        item.indexNumber?.let { "E$it" },
+    ).joinToString(" ")
+    return if (code.isEmpty()) title else "$code · $title"
 }
 
 /** Community rating, official rating badge, year and runtime. Renders nothing if all are missing. */
