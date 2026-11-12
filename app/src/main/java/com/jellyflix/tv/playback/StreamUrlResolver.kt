@@ -61,6 +61,8 @@ class StreamUrlResolver @Inject constructor(
                 ?: "/Videos/$itemId/main.m3u8?mediaSourceId=${chosen.id}&api_key=$token"
             if (transcodingUrl.startsWith("http")) transcodingUrl else baseUrl + transcodingUrl
         }
+        // Log the shape of the URL with the token redacted, to diagnose playback failures on-device.
+        android.util.Log.d("JellyflixPlayer", "stream direct=$direct url=" + url.replace(token, "<token>"))
         return Stream(url = url, mediaSource = chosen, isDirectPlay = direct)
     }
 

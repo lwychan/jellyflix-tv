@@ -52,6 +52,19 @@ class JellyfinClient @Inject constructor(
 
     fun invalidate() { cached = null }
 
+    /**
+     * The Authorization header the SDK sends on API calls, for requests made outside the SDK
+     * (the video player). Playback URLs that carry only api_key in the query are refused by
+     * the server with 401, so the player sends the same header instead.
+     */
+    suspend fun playbackAuthHeader(): String? {
+        val s = session.session.first()
+        val token = s.accessToken ?: return null
+        val id = s.deviceId ?: defaultDeviceId()
+        return "MediaBrowser Client=\"Jellyflix\", Device=\"Jellyflix-${Build.MODEL}\", " +
+            "DeviceId=\"$id\", Version=\"0.1.0\", Token=\"$token\""
+    }
+
     private fun defaultDeviceId(): String = "jellyflix-${Build.MODEL}-${Build.ID}".take(64)
 
     /** Builder used before auth — the server URL is known but no token yet. */

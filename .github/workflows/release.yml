@@ -61,7 +61,7 @@ jobs:
 
       - name: Build unsigned (debug) APKs fallback
         if: steps.keystore.outputs.signed == 'false'
-        run: ./gradlew :app:assembleDebug :sample-plugin:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleRelease :sample-plugin:assembleDebug --no-daemon --stacktrace
 
       - name: Collect artifacts
         run: |
@@ -69,7 +69,7 @@ jobs:
           shopt -s nullglob
           cp app/build/outputs/apk/release/*.apk              dist/ 2>/dev/null || true
           cp sample-plugin/build/outputs/apk/release/*.apk    dist/ 2>/dev/null || true
-          cp app/build/outputs/apk/debug/*.apk                dist/ 2>/dev/null || true
+          cp app/build/outputs/apk/release/*.apk              dist/ 2>/dev/null || true
           cp sample-plugin/build/outputs/apk/debug/*.apk      dist/ 2>/dev/null || true
           ls -la dist/
 

@@ -41,7 +41,7 @@ official clients leave on the table:
 
 ### Option A — sideload a prebuilt APK (easiest)
 
-Every push to `main` produces a debug APK in **[GitHub Actions → latest run →
+Every push to `main` produces a release APK in **[GitHub Actions → latest run →
 Artifacts](https://github.com/ZL154/jellyflix-tv/actions/workflows/build.yml)**,
 and every tagged `v*` release publishes APKs to **[Releases](https://github.com/ZL154/jellyflix-tv/releases)**.
 
@@ -65,7 +65,7 @@ newer — full setup in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 # One-off: generate the Gradle wrapper jar (not committed).
 gradle wrapper --gradle-version 8.9
 
-./gradlew :app:installDebug           # installs over ADB
+./gradlew :app:installRelease         # installs over ADB
 ./gradlew :sample-plugin:installDebug # optional reference plugin
 ```
 

@@ -21,14 +21,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Tab
-import androidx.tv.material3.TabDefaults
-import androidx.tv.material3.TabRow
-import androidx.tv.material3.TabRowScope
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 
@@ -54,6 +57,14 @@ fun TopNavRail(
     solidFraction: Float,
     modifier: Modifier = Modifier,
     title: String = "Jellyflix",
+    /**
+     * Called on DPAD-down from anywhere in the rail. Focus search from the tab row does not
+     * reliably reach the content below, so the host decides where DPAD-down goes.
+     * Null leaves DPAD-down to the default focus search.
+     */
+    onDown: (() -> Unit)? = null,
+    /** Attached to the selected tab so the content can route DPAD-up back into the rail. */
+    selectedFocus: FocusRequester? = null,
 ) {
     val selectedIndex = tabs.indexOfFirst { it.id == selected }.coerceAtLeast(0)
 
@@ -62,6 +73,14 @@ fun TopNavRail(
             .fillMaxWidth()
             .height(NavRailHeight)
             .background(PageBlack.copy(alpha = solidFraction.coerceIn(0f, 1f)))
+            .onPreviewKeyEvent { event ->
+                if (onDown != null && event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                    onDown()
+                    true
+                } else {
+                    false
+                }
+            }
             .padding(horizontal = 56.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -72,22 +91,22 @@ fun TopNavRail(
         )
         Spacer(Modifier.width(40.dp))
 
-        TabRow(
-            selectedTabIndex = selectedIndex,
-            containerColor = Color.Transparent,
-            separator = {},
-            // Focus and selection are drawn by each tab, not by the default indicator.
-            indicator = { _, _ -> },
-            tabs = {
-                tabs.forEachIndexed { index, tab ->
-                    NavTabItem(
-                        label = tab.label,
-                        selected = index == selectedIndex,
-                        onClick = { onSelect(tab.id) },
-                    )
-                }
-            },
-        )
+        // A plain Row, not TabRow: TabRow lays its tabs out through SubcomposeLayout, which
+        // re-runs on every focus move and made the rail stutter. Behaviour is the same here.
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            tabs.forEachIndexed { index, tab ->
+                NavTabItem(
+                    label = tab.label,
+                    selected = index == selectedIndex,
+                    onClick = { onSelect(tab.id) },
+                    modifier = if (index == selectedIndex && selectedFocus != null) {
+                        Modifier.focusRequester(selectedFocus)
+                    } else {
+                        Modifier
+                    },
+                )
+            }
+        }
 
         Spacer(Modifier.weight(1f))
 
@@ -96,7 +115,7 @@ fun TopNavRail(
 }
 
 @Composable
-private fun TabRowScope.NavTabItem(
+private fun NavTabItem(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -105,13 +124,10 @@ private fun TabRowScope.NavTabItem(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
 
-    Tab(
-        selected = selected,
-        onFocus = {},
-        onClick = onClick,
-        interactionSource = interaction,
-        colors = TabDefaults.pillIndicatorTabColors(),
-        modifier = modifier.padding(horizontal = 6.dp),
+    Box(
+        modifier = modifier
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 6.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
@@ -125,13 +141,13 @@ private fun TabRowScope.NavTabItem(
                 Text(
                     label,
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 17.sp,
                     ),
                     color = when {
                         focused -> Color.Black
                         selected -> Color.White
-                        else -> Color(0xB3D8DBE5)
+                        else -> Color(0xB3E5E5E5)
                     },
                 )
             }
@@ -165,7 +181,7 @@ private fun RailButton(label: String, onClick: () -> Unit) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
-            color = if (focused) Color.Black else Color(0xB3D8DBE5),
+            color = if (focused) Color.Black else Color(0xB3E5E5E5),
         )
     }
 }

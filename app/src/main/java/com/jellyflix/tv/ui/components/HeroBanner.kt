@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,7 +90,7 @@ fun HeroBanner(
             label = "hero-backdrop",
         ) { target ->
             // Use the lambda's own target so the outgoing frame keeps its image while fading.
-            val url = target?.let { ImageUrls.backdrop(it, maxWidth = 2560) }
+            val url = target?.let { ImageUrls.backdrop(it, maxWidth = 1920) }
             Box(Modifier.fillMaxSize().background(PageBlack)) {
                 if (url != null) {
                     AsyncImage(
@@ -138,7 +139,8 @@ fun HeroBanner(
                 transitionSpec = { fadeIn(tween(HeroCrossFadeMs)) togetherWith fadeOut(tween(HeroCrossFadeMs)) },
                 label = "hero-copy",
             ) { target ->
-                if (target != null) HeroCopy(target)
+                // HeroCopy emits several children; AnimatedContent would stack them, so wrap in a Column.
+                if (target != null) Column { HeroCopy(target) }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -192,7 +194,7 @@ private fun HeroCopy(item: BaseItemDto) {
         Text(
             it,
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium),
-            color = Color(0xFFD8DBE5),
+            color = Color(0xFFE5E5E5),
             maxLines = 1,
             modifier = Modifier.padding(top = 8.dp),
         )
@@ -204,7 +206,7 @@ private fun HeroCopy(item: BaseItemDto) {
         Text(
             it,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color(0xFFD8DBE5),
+            color = Color(0xFFE5E5E5),
             maxLines = 3,
             modifier = Modifier.padding(top = 12.dp),
         )
@@ -228,18 +230,18 @@ private fun HeroMetadata(item: BaseItemDto, modifier: Modifier = Modifier) {
             Text(
                 "★ $it",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFFF5C518),
+                color = Color(0xFFFFFFFF),
             )
         }
-        year?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Color(0xFFD8DBE5)) }
-        runtime?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Color(0xFFD8DBE5)) }
+        year?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Color(0xFFE5E5E5)) }
+        runtime?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Color(0xFFE5E5E5)) }
         item.officialRating?.takeIf { it.isNotBlank() }?.let {
             Box(
                 Modifier
-                    .border(1.dp, Color(0x99D8DBE5), RoundedCornerShape(3.dp))
+                    .border(1.dp, Color(0x99E5E5E5), RoundedCornerShape(3.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
-                Text(it, style = MaterialTheme.typography.labelLarge, color = Color(0xFFD8DBE5))
+                Text(it, style = MaterialTheme.typography.labelLarge, color = Color(0xFFE5E5E5))
             }
         }
     }
@@ -266,9 +268,9 @@ private fun HeroActionButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.height(52.dp).widthIn(min = 170.dp),
+        modifier = modifier.height(40.dp).widthIn(min = 150.dp),
         colors = ButtonDefaults.colors(
-            containerColor = if (primary) Color.White else Color(0x99646464),
+            containerColor = if (primary) Color.White else Color(0xB36D6D6E),
             contentColor = if (primary) Color.Black else Color.White,
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
@@ -276,12 +278,11 @@ private fun HeroActionButton(
             disabledContentColor = Color(0x66FFFFFF),
         ),
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 18.dp)) {
-                Icon(icon, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(label, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold))
-            }
+        // Sized to its content: a fill-size box here stretched Play across the whole hero column.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
         }
     }
 }

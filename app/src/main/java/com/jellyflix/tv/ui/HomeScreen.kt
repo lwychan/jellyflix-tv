@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -35,6 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -119,18 +126,37 @@ fun HomeScreen(
         if (tab == HomeTabs.MY_LIST) vm.refreshFavorites()
     }
 
-    // === DPAD-up from the top row: scroll the page up to the hero, then focus its Play button ===
+    // === Going down into the page from the nav or from the top row ===
+    // Scroll to the top, then focus the tab's first item: Play on Home, the search box on Search,
+    // the first poster on the grid tabs.
     val playFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
+    val gridFocusRequester = remember { FocusRequester() }
+    val navFocusRequester = remember { FocusRequester() }
+    // DPAD-up from the top row of a tab goes back to that tab's nav item.
+    val onUpToNav: () -> Unit = { runCatching { navFocusRequester.requestFocus() } }
     val scope = rememberCoroutineScope()
-    var playFocusRequest by remember { mutableIntStateOf(0) }
-    LaunchedEffect(playFocusRequest) {
-        if (playFocusRequest > 0) runCatching { playFocusRequester.requestFocus() }
+    var focusTarget by remember { mutableStateOf<FocusRequester?>(null) }
+    var focusTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(focusTick) {
+        if (focusTick > 0) focusTarget?.let { runCatching { it.requestFocus() } }
     }
-    val onRowDpadUp: () -> Unit = {
+    val focusContent: (FocusRequester) -> Unit = { target ->
         scope.launch {
             listState.animateScrollToItem(0)
-            playFocusRequest++
+            focusTarget = target
+            focusTick++
         }
+    }
+    val onRowDpadUp: () -> Unit = { focusContent(playFocusRequester) }
+    val onRailDown: () -> Unit = {
+        focusContent(
+            when (tab) {
+                HomeTabs.HOME -> playFocusRequester
+                HomeTabs.SEARCH -> searchFocusRequester
+                else -> gridFocusRequester
+            }
+        )
     }
 
     // === Rail: transparent over the hero, solid PageBlack once the content scrolls ===
@@ -178,6 +204,8 @@ fun HomeScreen(
                     HomeTabs.MOVIES -> PosterGrid(
                         items = state.movies,
                         listState = listState,
+                        firstFocus = gridFocusRequester,
+                        onUpToNav = onUpToNav,
                         emptyText = if (state.loading) "Loading movies…" else "No movies found in your libraries.",
                         onOpenDetails = onOpenDetails,
                         header = { GridHeader("Movies") },
@@ -185,6 +213,8 @@ fun HomeScreen(
                     HomeTabs.TV_SHOWS -> PosterGrid(
                         items = state.shows,
                         listState = listState,
+                        firstFocus = gridFocusRequester,
+                        onUpToNav = onUpToNav,
                         emptyText = if (state.loading) "Loading TV shows…" else "No TV shows found in your libraries.",
                         onOpenDetails = onOpenDetails,
                         header = { GridHeader("TV Shows") },
@@ -194,8 +224,16 @@ fun HomeScreen(
                         listState = listState,
                         onQuery = vm::onSearchQuery,
                         onOpenDetails = onOpenDetails,
+                        searchFocus = searchFocusRequester,
+                        onUpToNav = onUpToNav,
                     )
-                    HomeTabs.MY_LIST -> MyListTab(state = state, listState = listState, onOpenDetails = onOpenDetails)
+                    HomeTabs.MY_LIST -> MyListTab(
+                        state = state,
+                        listState = listState,
+                        onOpenDetails = onOpenDetails,
+                        firstFocus = gridFocusRequester,
+                        onUpToNav = onUpToNav,
+                    )
                 }
             }
 
@@ -205,12 +243,15 @@ fun HomeScreen(
                 onSelect = { tab = it },
                 onSettings = onOpenSettings,
                 solidFraction = railSolid,
+                onDown = onRailDown,
+                selectedFocus = navFocusRequester,
                 modifier = Modifier.align(Alignment.TopStart),
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeTab(
     state: HomeViewModel.State,
@@ -225,7 +266,11 @@ private fun HomeTab(
     onOpenDetails: (String) -> Unit,
     onOpenLibrary: (String) -> Unit,
 ) {
+    // Keep the focused card's title clear of the bottom edge. Focus rectangles cover the poster only.
+    val bottomMarginPx = with(LocalDensity.current) { 150.dp.toPx() }
+    val pageSpec = remember(bottomMarginPx) { EdgeBringIntoViewSpec(0f, bottomMarginPx) }
     // The hero is the first item of the page, so it scrolls away with the rows, as on Netflix.
+    CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -257,6 +302,7 @@ private fun HomeTab(
                     onClick = onOpenDetails,
                     onFocusChange = onRowCardFocusChange,
                     onDpadUp = if (continueIsTop) onRowDpadUp else null,
+                    landscape = true,
                 )
             }
         }
@@ -268,6 +314,7 @@ private fun HomeTab(
                     onClick = onOpenDetails,
                     onFocusChange = onRowCardFocusChange,
                     onDpadUp = if (nextUpIsTop) onRowDpadUp else null,
+                    landscape = true,
                 )
             }
         }
@@ -287,7 +334,7 @@ private fun HomeTab(
                 Text(
                     "Loading your library…",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFFA8ADBD),
+                    color = Color(0xFFB3B3B3),
                     modifier = Modifier.padding(horizontal = EdgePad),
                 )
             }
@@ -302,6 +349,7 @@ private fun HomeTab(
                 )
             }
         }
+    }
     }
 }
 
@@ -321,6 +369,8 @@ private fun SearchTab(
     listState: LazyListState,
     onQuery: (String) -> Unit,
     onOpenDetails: (String) -> Unit,
+    searchFocus: FocusRequester,
+    onUpToNav: () -> Unit,
 ) {
     PosterGrid(
         items = state.searchResults,
@@ -337,7 +387,15 @@ private fun SearchTab(
                 onValueChange = onQuery,
                 label = "Search",
                 placeholder = "Titles",
-                modifier = Modifier.width(560.dp).padding(bottom = 24.dp),
+                modifier = Modifier
+                    .focusRequester(searchFocus)
+                    .onPreviewKeyEvent { event ->
+                        val up = event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp
+                        if (up) onUpToNav()
+                        up
+                    }
+                    .width(560.dp)
+                    .padding(bottom = 24.dp),
             )
         },
     )
@@ -348,10 +406,14 @@ private fun MyListTab(
     state: HomeViewModel.State,
     listState: LazyListState,
     onOpenDetails: (String) -> Unit,
+    firstFocus: FocusRequester,
+    onUpToNav: () -> Unit,
 ) {
     PosterGrid(
         items = state.favorites,
         listState = listState,
+        firstFocus = firstFocus,
+        onUpToNav = onUpToNav,
         emptyText = if (state.loading) {
             "Loading your list…"
         } else {
@@ -377,6 +439,10 @@ private fun PosterGrid(
     emptyText: String,
     onOpenDetails: (String) -> Unit,
     header: (@Composable () -> Unit)? = null,
+    /** Attached to the first poster so the nav can move focus straight into the grid. */
+    firstFocus: FocusRequester? = null,
+    /** DPAD-up from the top row goes here (the nav). */
+    onUpToNav: (() -> Unit)? = null,
 ) {
     LazyColumn(
         state = listState,
@@ -387,13 +453,20 @@ private fun PosterGrid(
         header?.let { h -> item { h() } }
         if (items.isEmpty()) {
             item {
-                Text(emptyText, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFA8ADBD))
+                Text(emptyText, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFB3B3B3))
             }
         }
-        items(items.chunked(6), key = { row -> row.first().id.toString() }) { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(RowGap)) {
-                row.forEach { entry ->
-                    MediaCard(item = entry, onClick = { onOpenDetails(entry.id.toString()) })
+        // Each group of six is a horizontal carousel, so cards past the screen edge scroll into view.
+        itemsIndexed(items.chunked(6), key = { _, row -> row.first().id.toString() }) { rowIndex, row ->
+            CarouselRow {
+                itemsIndexed(row, key = { _, entry -> entry.id.toString() }) { column, entry ->
+                    val isFirst = rowIndex == 0 && column == 0
+                    MediaCard(
+                        item = entry,
+                        onClick = { onOpenDetails(entry.id.toString()) },
+                        modifier = if (isFirst && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier,
+                        onDpadUp = if (rowIndex == 0) onUpToNav else null,
+                    )
                 }
             }
         }
@@ -407,6 +480,8 @@ private fun RowSection(
     onClick: (String) -> Unit,
     onFocusChange: ((BaseItemDto, Boolean) -> Unit)? = null,
     onDpadUp: (() -> Unit)? = null,
+    /** Landscape 16:9 cards, used for Continue watching and Next up, where the art is episode stills. */
+    landscape: Boolean = false,
 ) {
     Column {
         Text(
@@ -416,16 +491,37 @@ private fun RowSection(
             modifier = Modifier.padding(start = EdgePad, end = EdgePad, bottom = 4.dp),
         )
         CarouselRow {
-            items(items, key = { it.id.toString() }) { item ->
+            itemsIndexed(items, key = { _, item -> item.id.toString() }) { _, item ->
                 MediaCard(
                     item = item,
                     onClick = { onClick(item.id.toString()) },
                     onFocusChange = onFocusChange,
                     onDpadUp = onDpadUp,
+                    widthDp = if (landscape) 280 else 180,
+                    heightDp = if (landscape) 158 else 270,
+                    label = cardTitle(item),
+                    subtitle = cardSubtitle(item),
                 )
             }
         }
     }
+}
+
+/** Shows show name for episodes, so a card always says what it is. */
+private fun cardTitle(item: BaseItemDto): String =
+    if (item.type == BaseItemKind.EPISODE) item.seriesName ?: item.name.orEmpty() else item.name.orEmpty()
+
+/** "S1 E4 · Episode title" for episodes; year for movies and shows. */
+private fun cardSubtitle(item: BaseItemDto): String? {
+    if (item.type != BaseItemKind.EPISODE) return item.productionYear?.toString()
+    val season = item.parentIndexNumber
+    val episode = item.indexNumber
+    val code = when {
+        season != null && episode != null -> "S$season E$episode"
+        episode != null -> "E$episode"
+        else -> null
+    }
+    return listOfNotNull(code, item.name?.takeIf { it.isNotBlank() }).joinToString(" · ").ifBlank { null }
 }
 
 @Composable
@@ -465,7 +561,9 @@ private fun LibraryRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CarouselRow(content: LazyListScope.() -> Unit) {
-    CompositionLocalProvider(LocalBringIntoViewSpec provides EdgeBringIntoViewSpec) {
+    val padPx = with(LocalDensity.current) { EdgePad.toPx() }
+    val rowSpec = remember(padPx) { EdgeBringIntoViewSpec(padPx, padPx) }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = EdgePad, vertical = 12.dp),
@@ -476,14 +574,22 @@ private fun CarouselRow(content: LazyListScope.() -> Unit) {
 }
 
 /**
- * Left-anchored, Netflix-style scrolling: the row stays still while the focused card is on
- * screen, and moves only the minimum needed to bring it fully into view at an edge.
+ * Netflix-style scrolling for one axis. Nothing moves while the focused item is inside
+ * the visible band; otherwise it moves the minimum needed to bring it in. The band is
+ * the container minus [startPx] and [endPx], so padding and bottom margins are respected.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private object EdgeBringIntoViewSpec : BringIntoViewSpec {
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = when {
-        offset < 0f -> offset
-        offset + size > containerSize -> offset + size - containerSize
-        else -> 0f
+private class EdgeBringIntoViewSpec(
+    private val startPx: Float,
+    private val endPx: Float,
+) : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val visibleStart = startPx
+        val visibleEnd = containerSize - endPx
+        return when {
+            offset < visibleStart -> offset - visibleStart
+            offset + size > visibleEnd -> offset + size - visibleEnd
+            else -> 0f
+        }
     }
 }

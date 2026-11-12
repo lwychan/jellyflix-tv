@@ -3,6 +3,7 @@ package com.jellyflix.tv.playback
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -31,13 +32,16 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.jellyflix.tv.data.JellyfinClient
 import com.jellyflix.tv.plugin.PluginHost
 import com.jellyflix.tv.ui.theme.JellyflixTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -56,6 +60,9 @@ class PlayerActivity : ComponentActivity() {
 
     @Inject lateinit var resolver: StreamUrlResolver
     @Inject lateinit var pluginHost: PluginHost
+    @Inject lateinit var client: JellyfinClient
+
+    private var httpFactory: DefaultHttpDataSource.Factory? = null
 
     private var player: ExoPlayer? = null
 
@@ -75,6 +82,9 @@ class PlayerActivity : ComponentActivity() {
     private fun PlayerSurface(itemId: UUID, title: String) {
         val ctx = this@PlayerActivity
         var format by remember { mutableStateOf<Format?>(null) }
+        var playbackError by remember { mutableStateOf<String?>(null) }
+        var firstFrameShown by remember { mutableStateOf(false) }
+        val openedAt = remember { android.os.SystemClock.elapsedRealtime() }
         var exoState by remember { mutableStateOf<ExoPlayer?>(null) }
         val ui = remember { PlaybackUi() }
 
@@ -93,11 +103,25 @@ class PlayerActivity : ComponentActivity() {
                     PlaybackOptimizer.matchRefreshRate(window, ctx, exo.videoFormat)
                     format = exo.videoFormat
                 }
+
+                override fun onRenderedFirstFrame() {
+                    firstFrameShown = true
+                    Log.d(TAG, "first frame after ${android.os.SystemClock.elapsedRealtime() - openedAt} ms")
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    val message = "${error.errorCodeName}: ${error.message}"
+                    Log.e(TAG, "Player error $message", error)
+                    playbackError = message
+                }
             }
             exo.addListener(listener)
 
             lifecycleScope.launch {
                 runCatching {
+                    client.playbackAuthHeader()?.let { header ->
+                        httpFactory?.setDefaultRequestProperties(mapOf("Authorization" to header))
+                    }
                     val stream = resolver.resolve(itemId)
                     pluginHost.onPlaybackStart(itemId, stream)
                     exo.setMediaItem(
@@ -108,7 +132,11 @@ class PlayerActivity : ComponentActivity() {
                     )
                     exo.prepare()
                     exo.playWhenReady = true
-                }.onFailure { Timber.e(it, "Playback start failed") }
+                }.onFailure {
+                    Timber.e(it, "Playback start failed")
+                    Log.e(TAG, "Playback start failed", it)
+                    playbackError = "Couldn't start playback: ${it.message ?: it.javaClass.simpleName}"
+                }
             }
 
             onDispose {
@@ -149,7 +177,8 @@ class PlayerActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 factory = { c ->
                     PlayerView(c).apply {
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        // Spinner from the moment playback starts, not only once it is playing.
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
                         // The Compose overlay replaces the built-in controller.
                         useController = false
                     }
@@ -177,6 +206,26 @@ class PlayerActivity : ComponentActivity() {
                 playFocus = playFocus,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            if (!firstFrameShown && playbackError == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    androidx.tv.material3.Text(
+                        "Loading…",
+                        style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                        color = Color(0xB3FFFFFF),
+                    )
+                }
+            }
+
+            playbackError?.let { message ->
+                Box(Modifier.fillMaxSize().padding(horizontal = 56.dp), contentAlignment = Alignment.Center) {
+                    androidx.tv.material3.Text(
+                        message,
+                        style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                    )
+                }
+            }
 
             openPanel?.let { kind ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
@@ -208,7 +257,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun buildPlayer(ctx: Context): ExoPlayer {
         val renderers = PlaybackOptimizer.renderers(ctx)
-        val sourceFactory = DefaultMediaSourceFactory(ctx).setDataSourceFactory(DefaultDataSource.Factory(ctx))
+        val http = DefaultHttpDataSource.Factory().also { httpFactory = it }
+        val sourceFactory = DefaultMediaSourceFactory(ctx).setDataSourceFactory(DefaultDataSource.Factory(ctx, http))
         return ExoPlayer.Builder(ctx, renderers)
             .setMediaSourceFactory(sourceFactory)
             .setSeekBackIncrementMs(10_000)
@@ -242,6 +292,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() { super.onStop(); player?.pause() }
 
     companion object {
+        private const val TAG = "JellyflixPlayer"
         private const val EXTRA_ITEM_ID = "itemId"
         private const val EXTRA_TITLE = "title"
         fun intent(ctx: Context, itemId: UUID, title: String) =

@@ -39,8 +39,8 @@ jobs:
       - name: Assemble app release (minified, dev-keystore-signed)
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Assemble app debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Assemble app release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Assemble sample-plugin
         run: ./gradlew :sample-plugin:assembleDebug --no-daemon --stacktrace

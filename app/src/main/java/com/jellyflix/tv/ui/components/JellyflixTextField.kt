@@ -12,14 +12,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 
-private val FieldBorder = Color(0xFF6C7389)
-private val FieldBorderFocused = Color(0xFF7E5BEF)
-private val FieldText = Color(0xFFECEEF5)
-private val FieldLabel = Color(0xFFA8ADBD)
-private val FieldContainer = Color(0xFF141821)
-private val FieldContainerFocused = Color(0xFF1C2130)
-private val FieldPlaceholder = Color(0xFF6C7389)
-private val FieldCursor = Color(0xFF7E5BEF)
+private val FieldBorder = Color(0xFF808080)
+private val FieldBorderFocused = Color(0xFFE50914)
+private val FieldText = Color(0xFFFFFFFF)
+private val FieldLabel = Color(0xFFB3B3B3)
+private val FieldContainer = Color(0xFF181818)
+private val FieldContainerFocused = Color(0xFF2F2F2F)
+private val FieldPlaceholder = Color(0xFF808080)
+private val FieldCursor = Color(0xFFE50914)
 
 /**
  * OutlinedTextField styled for the Jellyflix dark theme. Plain M3 uses its

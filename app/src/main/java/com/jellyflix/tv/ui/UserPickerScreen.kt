@@ -45,7 +45,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 
-private val DefaultAccent = Color(0xFF7E5BEF)
+private val DefaultAccent = Color(0xFFE50914)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -74,7 +74,7 @@ fun UserPickerScreen(
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.radialGradient(
-                        colors = listOf(accent.copy(alpha = 0.14f), Color(0xFF0B0D12)),
+                        colors = listOf(accent.copy(alpha = 0.14f), Color(0xFF141414)),
                         radius = 1400f,
                     )
                 )
@@ -101,7 +101,7 @@ fun UserPickerScreen(
                     Text(
                         it,
                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        color = Color(0xFFA8ADBD),
+                        color = Color(0xFFB3B3B3),
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
@@ -109,10 +109,10 @@ fun UserPickerScreen(
                 Spacer(Modifier.height(56.dp))
 
                 when {
-                    state.loading -> Text("Loading users…", color = Color(0xFFA8ADBD))
+                    state.loading -> Text("Loading users…", color = Color(0xFFB3B3B3))
                     state.users.isEmpty() && state.error == null -> Text(
                         "No public users on this server. Tap Add user to sign in manually.",
-                        color = Color(0xFFA8ADBD),
+                        color = Color(0xFFB3B3B3),
                         textAlign = TextAlign.Center,
                     )
                     else -> FlowRow(
@@ -177,7 +177,7 @@ private fun UserTile(
             modifier = Modifier
                 .size(160.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF1C2130))
+                .background(Color(0xFF2F2F2F))
                 .border(
                     width = if (focused) 4.dp else 0.dp,
                     color = if (focused) accent else Color.Transparent,
@@ -197,7 +197,7 @@ private fun UserTile(
                 Text(
                     user.name.take(1).uppercase(),
                     style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp),
-                    color = Color(0xFFECEEF5),
+                    color = Color(0xFFFFFFFF),
                 )
             }
         }
@@ -205,7 +205,7 @@ private fun UserTile(
         Text(
             user.name,
             style = MaterialTheme.typography.titleLarge,
-            color = if (focused) Color.White else Color(0xFFA8ADBD),
+            color = if (focused) Color.White else Color(0xFFB3B3B3),
             maxLines = 1,
             textAlign = TextAlign.Center,
         )
@@ -230,10 +230,10 @@ private fun AddUserTile(accent: Color, onClick: () -> Unit) {
             modifier = Modifier
                 .size(160.dp)
                 .clip(CircleShape)
-                .background(Color(0x221C2130))
+                .background(Color(0x222F2F2F))
                 .border(
                     width = if (focused) 4.dp else 2.dp,
-                    color = if (focused) accent else Color(0xFF6C7389),
+                    color = if (focused) accent else Color(0xFF808080),
                     shape = CircleShape,
                 )
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
@@ -242,7 +242,7 @@ private fun AddUserTile(accent: Color, onClick: () -> Unit) {
             Icon(
                 Icons.Filled.PersonAdd,
                 contentDescription = "Add user",
-                tint = if (focused) accent else Color(0xFFA8ADBD),
+                tint = if (focused) accent else Color(0xFFB3B3B3),
                 modifier = Modifier.size(48.dp),
             )
         }
@@ -250,7 +250,7 @@ private fun AddUserTile(accent: Color, onClick: () -> Unit) {
         Text(
             "Add user",
             style = MaterialTheme.typography.titleLarge,
-            color = if (focused) Color.White else Color(0xFFA8ADBD),
+            color = if (focused) Color.White else Color(0xFFB3B3B3),
             textAlign = TextAlign.Center,
         )
     }
