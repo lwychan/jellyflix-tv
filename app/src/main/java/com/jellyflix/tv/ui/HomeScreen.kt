@@ -108,8 +108,8 @@ fun HomeScreen(
 
     // === Hero selection ===
     // Fallback when nothing has focus: the first title we have, from continue watching, next up, or libraries.
-    val fallbackHero = remember(state.continueWatching, state.nextUp, state.libraries) {
-        (state.continueWatching + state.nextUp + state.libraries).firstOrNull()
+    val fallbackHero = remember(state.continueWatching, state.nextUp, state.recentShows, state.recentMovies, state.libraries) {
+        (state.continueWatching + state.nextUp + state.recentShows + state.recentMovies + state.libraries).firstOrNull()
     }
     // A card in any row drives the hero while it has focus.
     var rowFocusedItem by remember { mutableStateOf<BaseItemDto?>(null) }
@@ -261,6 +261,9 @@ fun HomeScreen(
     }
 }
 
+/** One titled carousel on the Home tab. [landscape] rows use 16:9 stills, others use posters. */
+private data class HomeRow(val title: String, val items: List<BaseItemDto>, val landscape: Boolean = false)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeTab(
@@ -278,7 +281,9 @@ private fun HomeTab(
 ) {
     // Keep the focused card's title clear of the bottom edge. Focus rectangles cover the poster only.
     val bottomMarginPx = with(LocalDensity.current) { 150.dp.toPx() }
-    val pageSpec = remember(bottomMarginPx) { EdgeBringIntoViewSpec(0f, bottomMarginPx) }
+    // ...and the focused row's heading clear of the top bar, which sits over the page.
+    val topMarginPx = with(LocalDensity.current) { (NavRailHeight + 48.dp).toPx() }
+    val pageSpec = remember(topMarginPx, bottomMarginPx) { EdgeBringIntoViewSpec(topMarginPx, bottomMarginPx) }
     // The hero is the first item of the page, so it scrolls away with the rows, as on Netflix.
     CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec) {
     LazyColumn(
@@ -299,32 +304,24 @@ private fun HomeTab(
             )
         }
 
+        // Rows in Netflix's order: what you're watching, what's new, then your own list.
         // The top row (first on screen) sends DPAD-up to the hero.
-        val continueIsTop = state.continueWatching.isNotEmpty()
-        val nextUpIsTop = !continueIsTop
-        val libraryIsTop = !continueIsTop && state.nextUp.isEmpty()
-
-        if (continueIsTop) {
-            item {
-                RowSection(
-                    "Continue watching",
-                    state.continueWatching,
-                    onClick = onOpenDetails,
-                    onFocusChange = onRowCardFocusChange,
-                    onDpadUp = if (continueIsTop) onRowDpadUp else null,
-                    landscape = true,
-                )
-            }
+        val rows = buildList {
+            if (state.continueWatching.isNotEmpty()) add(HomeRow("Continue watching", state.continueWatching, landscape = true))
+            if (state.nextUp.isNotEmpty()) add(HomeRow("Next up", state.nextUp, landscape = true))
+            if (state.recentShows.isNotEmpty()) add(HomeRow("Recently added TV shows", state.recentShows))
+            if (state.recentMovies.isNotEmpty()) add(HomeRow("Recently added movies", state.recentMovies))
+            if (state.favorites.isNotEmpty()) add(HomeRow("My List", state.favorites))
         }
-        if (state.nextUp.isNotEmpty()) {
-            item {
+        rows.forEachIndexed { index, row ->
+            item(key = row.title) {
                 RowSection(
-                    "Next up",
-                    state.nextUp,
+                    row.title,
+                    row.items,
                     onClick = onOpenDetails,
                     onFocusChange = onRowCardFocusChange,
-                    onDpadUp = if (nextUpIsTop) onRowDpadUp else null,
-                    landscape = true,
+                    onDpadUp = if (index == 0) onRowDpadUp else null,
+                    landscape = row.landscape,
                 )
             }
         }
@@ -334,7 +331,7 @@ private fun HomeTab(
                     state.libraries,
                     onOpen = onOpenLibrary,
                     onFocusChange = onRowCardFocusChange,
-                    onDpadUp = if (libraryIsTop) onRowDpadUp else null,
+                    onDpadUp = if (rows.isEmpty()) onRowDpadUp else null,
                 )
             }
         }

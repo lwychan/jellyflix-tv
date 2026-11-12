@@ -94,6 +94,24 @@ class MediaRepository @Inject constructor(
         ).content.items.orEmpty()
     }.getOrDefault(emptyList())
 
+    /**
+     * Newest titles first. A show counts as new when a new episode arrives, not only when the
+     * show is first added, so a returning series moves back to the front.
+     */
+    suspend fun recentlyAdded(kind: BaseItemKind, limit: Int = 20): List<BaseItemDto> = runCatching {
+        val api = client.api()
+        api.itemsApi.getItems(
+            userId = currentUserId(),
+            recursive = true,
+            limit = limit,
+            includeItemTypes = listOf(kind),
+            sortBy = listOf(
+                if (kind == BaseItemKind.SERIES) ItemSortBy.DATE_LAST_CONTENT_ADDED else ItemSortBy.DATE_CREATED,
+            ),
+            sortOrder = listOf(SortOrder.DESCENDING),
+        ).content.items.orEmpty()
+    }.getOrDefault(emptyList())
+
     /** Library-wide title search (movies and series). */
     suspend fun search(term: String, limit: Int = 60): List<BaseItemDto> = runCatching {
         val api = client.api()

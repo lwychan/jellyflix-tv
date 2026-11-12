@@ -30,6 +30,8 @@ class HomeViewModel @Inject constructor(
         val favorites: List<BaseItemDto> = emptyList(),
         val movies: List<BaseItemDto> = emptyList(),
         val shows: List<BaseItemDto> = emptyList(),
+        val recentShows: List<BaseItemDto> = emptyList(),
+        val recentMovies: List<BaseItemDto> = emptyList(),
         val searchQuery: String = "",
         val searchResults: List<BaseItemDto> = emptyList(),
         val searching: Boolean = false,
@@ -55,6 +57,8 @@ class HomeViewModel @Inject constructor(
             val favJob = async { runCatching { repo.favorites() }.getOrDefault(emptyList()) }
             val moviesJob = async { repo.allOfKind(BaseItemKind.MOVIE) }
             val showsJob = async { repo.allOfKind(BaseItemKind.SERIES) }
+            val recentShowsJob = async { repo.recentlyAdded(BaseItemKind.SERIES) }
+            val recentMoviesJob = async { repo.recentlyAdded(BaseItemKind.MOVIE) }
             _state.update {
                 it.copy(
                     continueWatching = cwJob.await(),
@@ -63,6 +67,8 @@ class HomeViewModel @Inject constructor(
                     favorites = favJob.await(),
                     movies = moviesJob.await(),
                     shows = showsJob.await(),
+                    recentShows = recentShowsJob.await(),
+                    recentMovies = recentMoviesJob.await(),
                     loading = false,
                 )
             }

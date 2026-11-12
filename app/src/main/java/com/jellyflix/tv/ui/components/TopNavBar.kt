@@ -30,10 +30,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.jellyflix.tv.R
 
 data class NavTab(val id: String, val label: String)
 
@@ -56,7 +58,7 @@ fun TopNavRail(
     onSettings: () -> Unit,
     solidFraction: Float,
     modifier: Modifier = Modifier,
-    title: String = "Jellyflix",
+    title: String = stringResource(R.string.app_name),
     /**
      * Called on DPAD-down from anywhere in the rail. Focus search from the tab row does not
      * reliably reach the content below, so the host decides where DPAD-down goes.
