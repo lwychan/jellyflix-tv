@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,9 +27,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
-import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -42,28 +40,36 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.jellyflix.tv.data.JellyfinClient
+import com.jellyflix.tv.data.MediaRepository
 import com.jellyflix.tv.plugin.PluginHost
-import org.jellyfin.sdk.api.client.extensions.playStateApi
-import org.jellyfin.sdk.model.api.PlayMethod
-import org.jellyfin.sdk.model.api.PlaybackOrder
-import org.jellyfin.sdk.model.api.RepeatMode
-import org.jellyfin.sdk.model.api.PlaybackProgressInfo
-import org.jellyfin.sdk.model.api.PlaybackStartInfo
-import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import com.jellyflix.tv.ui.theme.JellyflixTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jellyfin.sdk.api.client.extensions.playStateApi
+import org.jellyfin.sdk.model.api.MediaSegmentType
+import org.jellyfin.sdk.model.api.PlayMethod
+import org.jellyfin.sdk.model.api.PlaybackOrder
+import org.jellyfin.sdk.model.api.PlaybackProgressInfo
+import org.jellyfin.sdk.model.api.PlaybackStartInfo
+import org.jellyfin.sdk.model.api.PlaybackStopInfo
+import org.jellyfin.sdk.model.api.RepeatMode
 import timber.log.Timber
 
 /** Which track picker is open over the controls. */
 private enum class TrackKind { SUBTITLES, AUDIO }
+
+/** What to play. [seq] changes on every request, so picking the same title again restarts it. */
+private data class Target(val id: UUID, val startMs: Long, val seq: Int)
+
+/** What Jellyfin needs to hear about the title being played. */
+private data class ReportSession(val itemId: UUID, val mediaSourceId: String?, val playMethod: PlayMethod)
 
 @OptIn(UnstableApi::class)
 @AndroidEntryPoint
@@ -72,129 +78,156 @@ class PlayerActivity : ComponentActivity() {
     @Inject lateinit var resolver: StreamUrlResolver
     @Inject lateinit var pluginHost: PluginHost
     @Inject lateinit var client: JellyfinClient
+    @Inject lateinit var repo: MediaRepository
 
+    private lateinit var exo: ExoPlayer
     private var httpFactory: DefaultHttpDataSource.Factory? = null
 
-    private var player: ExoPlayer? = null
-    private var startMs: Long = 0L
-
     // Playback reporting, so Jellyfin knows where the viewer got to (Continue watching, resume).
-    private var itemIdForReport: UUID? = null
-    private var mediaSourceForReport: String? = null
-    private var playMethodForReport: PlayMethod = PlayMethod.DIRECT_PLAY
-    private var progressJob: Job? = null
+    private var session: ReportSession? = null
     private val reportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Bumped on every key press so the overlay restarts its idle timer. */
+    private var fallbackTitle = ""
+    private var switches = 0
+
+    /** When the current title was requested, for the time-to-first-frame log. */
+    private var openedAt = 0L
+
+    // UI state the overlay and the player listener share.
+    private var target by mutableStateOf<Target?>(null)
+    private var now by mutableStateOf<NowPlaying?>(null)
     private var inputTick by mutableIntStateOf(0)
+    private var playbackError by mutableStateOf<String?>(null)
+    private var firstFrameShown by mutableStateOf(false)
+    private var ended by mutableStateOf(false)
+    private var controlsVisible by mutableStateOf(true)
+    private var openPanel by mutableStateOf<TrackKind?>(null)
+    private var panelChoices by mutableStateOf<List<TrackChoice>>(emptyList())
+    private var episodesOpen by mutableStateOf(false)
+
+    /** Read by [onKeyDown]; false while a panel owns left/right. */
+    private var seekKeysAllowed = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val itemId = intent.getStringExtra(EXTRA_ITEM_ID)?.let(UUID::fromString)
             ?: run { finish(); return }
-        val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
-        startMs = intent.getLongExtra(EXTRA_START_MS, 0L)
-        itemIdForReport = itemId
+        fallbackTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        val startMs = intent.getLongExtra(EXTRA_START_MS, 0L)
 
-        setContent { JellyflixTheme { PlayerSurface(itemId, title) } }
+        exo = buildPlayer(this)
+        openedAt = android.os.SystemClock.elapsedRealtime()
+        exo.addListener(object : Player.Listener {
+            override fun onVideoSizeChanged(size: VideoSize) {
+                PlaybackOptimizer.matchRefreshRate(window, this@PlayerActivity, exo.videoFormat)
+            }
+
+            override fun onRenderedFirstFrame() {
+                firstFrameShown = true
+                Log.d(TAG, "first frame after ${android.os.SystemClock.elapsedRealtime() - openedAt} ms")
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) ended = true
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val message = "${error.errorCodeName}: ${error.message}"
+                Log.e(TAG, "Player error $message", error)
+                playbackError = message
+            }
+        })
+
+        target = Target(itemId, startMs, switches)
+        setContent { JellyflixTheme { PlayerSurface() } }
     }
 
     @Composable
-    private fun PlayerSurface(itemId: UUID, title: String) {
-        val ctx = this@PlayerActivity
-        var format by remember { mutableStateOf<Format?>(null) }
-        var playbackError by remember { mutableStateOf<String?>(null) }
-        var firstFrameShown by remember { mutableStateOf(false) }
-        val openedAt = remember { android.os.SystemClock.elapsedRealtime() }
-        var exoState by remember { mutableStateOf<ExoPlayer?>(null) }
+    private fun PlayerSurface() {
+        val current = target ?: return
         val ui = remember { PlaybackUi() }
-
-        var controlsVisible by remember { mutableStateOf(true) }
-        var openPanel by remember { mutableStateOf<TrackKind?>(null) }
-        var panelChoices by remember { mutableStateOf<List<TrackChoice>>(emptyList()) }
-        val playFocus = remember { FocusRequester() }
+        val focus = remember { ControlFocus() }
         val panelFocus = remember { FocusRequester() }
 
-        DisposableEffect(itemId) {
-            val exo = buildPlayer(ctx)
-            player = exo
-            exoState = exo
-            val listener = object : Player.Listener {
-                override fun onVideoSizeChanged(size: VideoSize) {
-                    PlaybackOptimizer.matchRefreshRate(window, ctx, exo.videoFormat)
-                    format = exo.videoFormat
-                }
+        // Details for the overlay: show name, episodes, intro/credits ranges, chapters.
+        LaunchedEffect(current.id) {
+            val loaded = loadNowPlaying(repo, current.id)
+            if (loaded != null) now = loaded
+        }
 
-                override fun onRenderedFirstFrame() {
-                    firstFrameShown = true
-                    Log.d(TAG, "first frame after ${android.os.SystemClock.elapsedRealtime() - openedAt} ms")
+        // Resolve the stream and start playing whenever the target changes.
+        LaunchedEffect(current) {
+            try {
+                client.playbackAuthHeader()?.let { header ->
+                    httpFactory?.setDefaultRequestProperties(mapOf("Authorization" to header))
                 }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    val message = "${error.errorCodeName}: ${error.message}"
-                    Log.e(TAG, "Player error $message", error)
-                    playbackError = message
+                val stream = resolver.resolve(current.id)
+                pluginHost.onPlaybackStart(current.id, stream)
+                val s = ReportSession(
+                    itemId = current.id,
+                    mediaSourceId = stream.mediaSource.id,
+                    playMethod = if (stream.isDirectPlay) PlayMethod.DIRECT_PLAY else PlayMethod.TRANSCODE,
+                )
+                session = s
+                exo.setMediaItem(
+                    MediaItem.Builder()
+                        .setUri(stream.url)
+                        .setMediaMetadata(MediaMetadata.Builder().setTitle(now?.item?.name ?: fallbackTitle).build())
+                        .build(),
+                    current.startMs,
+                )
+                exo.prepare()
+                exo.playWhenReady = true
+                reportStart(s, current.startMs)
+                while (true) {
+                    delay(10_000)
+                    reportProgress(s, exo.currentPosition, paused = !exo.isPlaying)
                 }
-            }
-            exo.addListener(listener)
-
-            lifecycleScope.launch {
-                runCatching {
-                    client.playbackAuthHeader()?.let { header ->
-                        httpFactory?.setDefaultRequestProperties(mapOf("Authorization" to header))
-                    }
-                    val stream = resolver.resolve(itemId)
-                    pluginHost.onPlaybackStart(itemId, stream)
-                    exo.setMediaItem(
-                        MediaItem.Builder()
-                            .setUri(stream.url)
-                            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
-                            .build(),
-                        startMs,
-                    )
-                    mediaSourceForReport = stream.mediaSource.id
-                    playMethodForReport = if (stream.isDirectPlay) PlayMethod.DIRECT_PLAY else PlayMethod.TRANSCODE
-                    exo.prepare()
-                    exo.playWhenReady = true
-                    reportStart(exo.currentPosition)
-                    progressJob = lifecycleScope.launch {
-                        while (true) {
-                            delay(10_000)
-                            reportProgress(exo.currentPosition, paused = !exo.isPlaying)
-                        }
-                    }
-                }.onFailure {
-                    Timber.e(it, "Playback start failed")
-                    Log.e(TAG, "Playback start failed", it)
-                    playbackError = "Couldn't start playback: ${it.message ?: it.javaClass.simpleName}"
-                }
-            }
-
-            onDispose {
-                progressJob?.cancel()
-                reportStop(exo.currentPosition)
-                exo.removeListener(listener)
-                exo.release()
-                player = null
-                exoState = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Timber.e(e, "Playback start failed")
+                Log.e(TAG, "Playback start failed", e)
+                playbackError = "Couldn't start playback: ${e.message ?: e.javaClass.simpleName}"
             }
         }
 
-        PlaybackPoller(player = exoState, ui = ui)
+        // A finished episode rolls on into the next, as on Netflix. After the last one, or a
+        // movie, the player closes and the title page is back.
+        LaunchedEffect(ended) {
+            if (!ended) return@LaunchedEffect
+            ended = false
+            val next = now?.next
+            if (next != null) switchTo(next.id, 0L, next.name.orEmpty()) else finish()
+        }
 
-        // Controls stay up while paused or while a picker is open. While playing they hide
+        PlaybackPoller(player = exo, ui = ui, segments = now?.segments.orEmpty())
+
+        SideEffect { seekKeysAllowed = openPanel == null && !episodesOpen }
+
+        // Controls stay up while paused or while a panel is open. While playing they hide
         // after CONTROLS_IDLE_MS with no input. Any key press restarts the timer.
-        LaunchedEffect(inputTick, openPanel, ui.playing) {
+        LaunchedEffect(inputTick, openPanel, episodesOpen, ui.playing) {
             controlsVisible = true
-            if (ui.playing && openPanel == null) {
+            if (ui.playing && openPanel == null && !episodesOpen) {
                 delay(CONTROLS_IDLE_MS)
                 controlsVisible = false
             }
         }
 
         // When the bar appears, focus Play so DPAD-centre works on it straight away.
-        LaunchedEffect(controlsVisible) {
-            if (controlsVisible && openPanel == null) runCatching { playFocus.requestFocus() }
+        // A skip prompt on screen keeps focus instead.
+        LaunchedEffect(controlsVisible, episodesOpen, openPanel) {
+            if (controlsVisible && !episodesOpen && openPanel == null && ui.activeSegment == null) {
+                runCatching { focus.play.requestFocus() }
+            }
+        }
+
+        // A skip prompt takes focus when it appears, so one press of OK skips.
+        LaunchedEffect(ui.activeSegment) {
+            if (ui.activeSegment != null && !episodesOpen && openPanel == null) {
+                runCatching { focus.skip.requestFocus() }
+            }
         }
 
         LaunchedEffect(openPanel) {
@@ -202,7 +235,11 @@ class PlayerActivity : ComponentActivity() {
         }
 
         BackHandler {
-            if (openPanel != null) openPanel = null else finish()
+            when {
+                openPanel != null -> openPanel = null
+                episodesOpen -> episodesOpen = false
+                else -> finish()
+            }
         }
 
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -216,27 +253,40 @@ class PlayerActivity : ComponentActivity() {
                         useController = false
                     }
                 },
-                update = { it.player = player },
+                update = { it.player = exo },
             )
 
             PlayerControlsOverlay(
                 visible = controlsVisible,
-                title = title,
+                now = now,
+                fallbackTitle = fallbackTitle,
                 ui = ui,
-                onPlayPause = { togglePlay() },
-                onOpenSubtitles = {
-                    exoState?.let { panelChoices = trackChoices(it, C.TRACK_TYPE_TEXT, offLabel = "Off") }
-                    openPanel = TrackKind.SUBTITLES
-                },
-                onOpenAudio = {
-                    exoState?.let { panelChoices = trackChoices(it, C.TRACK_TYPE_AUDIO, offLabel = null) }
-                    openPanel = TrackKind.AUDIO
-                },
-                onSeekStep = { forward ->
-                    inputTick++
-                    exoState?.let { if (forward) it.seekForward() else it.seekBack() }
-                },
-                playFocus = playFocus,
+                episodesOpen = episodesOpen,
+                seekEnabled = openPanel == null && !episodesOpen,
+                actions = PlayerActions(
+                    onBack = { finish() },
+                    onPlayPause = { togglePlay() },
+                    onReplay = { exo.seekTo((exo.currentPosition - 10_000).coerceAtLeast(0)) },
+                    onToggleEpisodes = { episodesOpen = !episodesOpen },
+                    onOpenSubtitles = {
+                        panelChoices = trackChoices(exo, C.TRACK_TYPE_TEXT, offLabel = "Off")
+                        openPanel = TrackKind.SUBTITLES
+                    },
+                    onOpenAudio = {
+                        panelChoices = trackChoices(exo, C.TRACK_TYPE_AUDIO, offLabel = null)
+                        openPanel = TrackKind.AUDIO
+                    },
+                    onSkip = { span -> skip(span) },
+                    onPickEpisode = { ep ->
+                        episodesOpen = false
+                        switchTo(ep.id, ep.startPositionMs(), ep.name.orEmpty())
+                    },
+                    onSeekStep = { forward ->
+                        inputTick++
+                        if (forward) exo.seekForward() else exo.seekBack()
+                    },
+                ),
+                focus = focus,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -261,23 +311,22 @@ class PlayerActivity : ComponentActivity() {
             }
 
             openPanel?.let { kind ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                // Under the Subtitles and Audio buttons, top right.
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
                     TrackPanel(
                         title = if (kind == TrackKind.SUBTITLES) "Subtitles" else "Audio",
                         choices = panelChoices,
                         firstItemFocus = panelFocus,
                         onPick = { choice ->
-                            exoState?.let { exo ->
-                                selectTrack(
-                                    exo,
-                                    if (kind == TrackKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO,
-                                    choice,
-                                )
-                            }
+                            selectTrack(
+                                exo,
+                                if (kind == TrackKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO,
+                                choice,
+                            )
                             openPanel = null
                         },
                         onDismiss = { openPanel = null },
-                        modifier = Modifier.padding(end = 56.dp, bottom = 140.dp),
+                        modifier = Modifier.padding(end = 40.dp, top = 84.dp),
                     )
                 }
             }
@@ -285,7 +334,30 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun togglePlay() {
-        player?.let { if (it.isPlaying) it.pause() else it.play() }
+        if (exo.isPlaying) exo.pause() else exo.play()
+    }
+
+    /** Stops reporting the current title and starts [id] from [startMs]. */
+    private fun switchTo(id: UUID, startMs: Long, title: String) {
+        session?.let { reportStop(it, exo.currentPosition) }
+        session = null
+        playbackError = null
+        firstFrameShown = false
+        // Drop the old title's skip ranges and next-episode link until the new ones load.
+        now = null
+        fallbackTitle = title
+        openedAt = android.os.SystemClock.elapsedRealtime()
+        target = Target(id, startMs, ++switches)
+    }
+
+    /** Intro, recap and credits buttons. Credits go to the next episode when there is one. */
+    private fun skip(span: Span) {
+        val next = now?.next
+        if (span.type == MediaSegmentType.OUTRO && next != null) {
+            switchTo(next.id, 0L, next.name.orEmpty())
+        } else {
+            exo.seekTo(span.endMs)
+        }
     }
 
     private fun buildPlayer(ctx: Context): ExoPlayer {
@@ -305,40 +377,51 @@ class PlayerActivity : ComponentActivity() {
 
     /**
      * Remote keys that reach the activity: the overlay's focusable controls consume DPAD
-     * when the bar is up, so these run when it is hidden or when a key has no focus target
-     * (for example, left/right at the edge of the bar seeks).
+     * when the bar is up, so these run when it is hidden or when a key has no focus target.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         inputTick++
-        val p = player ?: return super.onKeyDown(keyCode, event)
+        if (!::exo.isInitialized) return super.onKeyDown(keyCode, event)
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 togglePlay()
                 return true
             }
-            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_DPAD_LEFT -> { p.seekBack(); return true }
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_DPAD_RIGHT -> { p.seekForward(); return true }
+            // Remotes with separate Play and Pause buttons.
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { exo.play(); return true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { exo.pause(); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { exo.seekBack(); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { exo.seekForward(); return true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (seekKeysAllowed) { exo.seekBack(); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (seekKeysAllowed) { exo.seekForward(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onStop() {
         super.onStop()
-        player?.let { p ->
-            p.pause()
-            reportProgress(p.currentPosition, paused = true)
-        }
+        if (!::exo.isInitialized) return
+        exo.pause()
+        session?.let { reportProgress(it, exo.currentPosition, paused = true) }
     }
 
-    private fun reportStart(positionMs: Long) = reportScope.launch {
-        val id = itemIdForReport ?: return@launch
+    override fun onDestroy() {
+        if (::exo.isInitialized) {
+            session?.let { reportStop(it, exo.currentPosition) }
+            session = null
+            exo.release()
+        }
+        super.onDestroy()
+    }
+
+    private fun reportStart(s: ReportSession, positionMs: Long) = reportScope.launch {
         runCatching {
             client.api().playStateApi.reportPlaybackStart(
                 data = PlaybackStartInfo(
-                    itemId = id,
-                    mediaSourceId = mediaSourceForReport,
+                    itemId = s.itemId,
+                    mediaSourceId = s.mediaSourceId,
                     positionTicks = positionMs * 10_000L,
-                    playMethod = playMethodForReport,
+                    playMethod = s.playMethod,
                     canSeek = true,
                     isPaused = false,
                     isMuted = false,
@@ -349,16 +432,15 @@ class PlayerActivity : ComponentActivity() {
         }.onFailure { Timber.w(it, "Reporting playback start failed") }
     }
 
-    private fun reportProgress(positionMs: Long, paused: Boolean) = reportScope.launch {
-        val id = itemIdForReport ?: return@launch
+    private fun reportProgress(s: ReportSession, positionMs: Long, paused: Boolean) = reportScope.launch {
         runCatching {
             client.api().playStateApi.reportPlaybackProgress(
                 data = PlaybackProgressInfo(
-                    itemId = id,
-                    mediaSourceId = mediaSourceForReport,
+                    itemId = s.itemId,
+                    mediaSourceId = s.mediaSourceId,
                     positionTicks = positionMs * 10_000L,
                     isPaused = paused,
-                    playMethod = playMethodForReport,
+                    playMethod = s.playMethod,
                     canSeek = true,
                     isMuted = false,
                     repeatMode = RepeatMode.REPEAT_NONE,
@@ -368,13 +450,12 @@ class PlayerActivity : ComponentActivity() {
         }.onFailure { Timber.w(it, "Reporting playback progress failed") }
     }
 
-    private fun reportStop(positionMs: Long) = reportScope.launch {
-        val id = itemIdForReport ?: return@launch
+    private fun reportStop(s: ReportSession, positionMs: Long) = reportScope.launch {
         runCatching {
             client.api().playStateApi.reportPlaybackStopped(
                 data = PlaybackStopInfo(
-                    itemId = id,
-                    mediaSourceId = mediaSourceForReport,
+                    itemId = s.itemId,
+                    mediaSourceId = s.mediaSourceId,
                     positionTicks = positionMs * 10_000L,
                     failed = false,
                 ),

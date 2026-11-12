@@ -23,6 +23,17 @@ official clients leave on the table:
 > optimisations are wired up. Details screen, settings, Quick Connect, 4K HDR
 > track preferences, and the in-app plugin store are the next milestones.
 
+### Player
+
+- Netflix-style layout: back and title top left; Episodes, Subtitles and Audio top right; play,
+  replay 10 s, scrub bar and time remaining along the bottom.
+- Skip Intro, Skip Recap, Skip Credits and Next Episode, from the server's media segments. Install
+  a segment plugin such as [Intro Skipper](https://github.com/intro-skipper/intro-skipper) on the
+  server; titles without segments get no button.
+- An episode list over the video, a season at a time, with each episode's synopsis.
+- Chapter ticks on the scrub bar, from the file's chapters.
+- The next episode starts when one ends; after the last one the player returns to the title page.
+
 ## Stack
 
 | Concern          | Choice                                                   |

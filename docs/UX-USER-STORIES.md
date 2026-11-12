@@ -50,16 +50,34 @@ but not right yet. **To do** = not started.
 
 15. **Control playback with the remote.** As a viewer, Enter pauses or plays, left and right seek
     10 seconds back or 30 seconds forward. *Done.*
-16. **Controls that get out of the way.** As a viewer, the control bar appears when I press a
-    button and hides after 3 seconds of no input while playing. *Done.*
-17. **Choose subtitles and audio.** As a viewer, I open a subtitle or audio picker from the bar
-    and choose a track. *Done.*
-18. **Resume.** As a viewer, playback resumes at my last position. *To do.*
+16. **Controls that get out of the way.** As a viewer, the controls appear when I press a button
+    and hide after 3 seconds of no input while playing. *Done.*
+17. **Netflix-style layout.** As a viewer, the back arrow and title are top left, with Episodes,
+    Subtitles and Audio top right. Play, replay 10 seconds, the scrub bar and the time remaining are
+    along the bottom. *Built; check on the device.*
+18. **Choose subtitles and audio.** As a viewer, I open a subtitle or audio picker from the top
+    right and choose a track. Subtitles start off. *Done.*
+19. **Resume.** As a viewer, playback resumes at my last position, and Continue Watching stays
+    current. *Done.*
+20. **Skip the intro.** As a viewer, a Skip Intro button appears bottom right while the intro plays,
+    and one press of Enter jumps past it. The same button reads Skip Recap during a recap. The ranges
+    come from the server (Intro Skipper), so shows it has not scanned get no button. *Built; check on
+    the device.*
+21. **Skip the credits.** As a viewer, during the credits the button reads Next Episode and starts the
+    next episode. On the last episode it reads Skip Credits. When an episode ends, the next one starts
+    on its own; after the last one the player closes and the title page is back. *Built; check on
+    the device.*
+22. **Browse episodes without leaving the video.** As a viewer, Episodes opens a row of the show's
+    episodes under the picture, a season at a time, each with its picture, length and synopsis. The
+    playing episode is focused. Choosing one switches to it. Back closes the row. *Built; check on
+    the device.*
+23. **See chapters.** As a viewer, the scrub bar has a tick at each chapter the file defines.
+    *Built; check on the device.*
 
 ## Account and settings
 
-19. **Choose a profile.** As a viewer, I pick my profile from the start screen. *Done.*
-20. **Settings.** As a viewer, Settings is always reachable from the top bar. *Done (basic).*
+24. **Choose a profile.** As a viewer, I pick my profile from the start screen. *Done.*
+25. **Settings.** As a viewer, Settings is always reachable from the top bar. *Done (basic).*
 
 ## Not in scope yet
 

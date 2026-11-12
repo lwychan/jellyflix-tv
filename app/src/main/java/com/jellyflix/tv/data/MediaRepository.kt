@@ -5,12 +5,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 import org.jellyfin.sdk.api.client.extensions.itemsApi
+import org.jellyfin.sdk.api.client.extensions.mediaSegmentsApi
 import org.jellyfin.sdk.api.client.extensions.tvShowsApi
 import org.jellyfin.sdk.api.client.extensions.userLibraryApi
 import org.jellyfin.sdk.api.client.extensions.userViewsApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.MediaSegmentDto
 import org.jellyfin.sdk.model.api.SortOrder
 
 @Singleton
@@ -109,4 +112,29 @@ class MediaRepository @Inject constructor(
         val api = client.api()
         return api.userLibraryApi.getItem(userId = currentUserId(), itemId = id).content
     }
+
+    /** One item with the fields the player needs: chapters and synopsis. */
+    suspend fun detailed(id: UUID): BaseItemDto? = runCatching {
+        val api = client.api()
+        api.itemsApi.getItems(
+            userId = currentUserId(),
+            ids = listOf(id),
+            fields = listOf(ItemFields.CHAPTERS, ItemFields.OVERVIEW),
+        ).content.items.orEmpty().firstOrNull()
+    }.getOrNull()
+
+    /** Every episode of a series, with synopses. The caller sorts them. */
+    suspend fun episodesOf(seriesId: UUID): List<BaseItemDto> = runCatching {
+        val api = client.api()
+        api.tvShowsApi.getEpisodes(
+            seriesId = seriesId,
+            userId = currentUserId(),
+            fields = listOf(ItemFields.OVERVIEW),
+        ).content.items.orEmpty()
+    }.getOrDefault(emptyList())
+
+    /** Intro, outro and recap ranges the server has detected (Intro Skipper or similar). */
+    suspend fun segments(itemId: UUID): List<MediaSegmentDto> = runCatching {
+        client.api().mediaSegmentsApi.getItemSegments(itemId = itemId).content.items.orEmpty()
+    }.getOrDefault(emptyList())
 }
