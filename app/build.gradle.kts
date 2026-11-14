@@ -7,23 +7,26 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// Rename APK output: jellyflix-app-0.1.0-<buildType>.apk
-base { archivesName = "jellyflix-app-0.1.0" }
+// Rename APK output: notflix-app-0.1.0-<buildType>.apk
+base { archivesName = "notflix-app-0.1.0" }
 
 android {
-    namespace = "com.jellyflix.tv"
+    namespace = "com.notflix.tv"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.jellyflix.tv"
+        applicationId = "com.notflix.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Bump versionCode and versionName on every build that gets pushed to any device.
+        // The same APK goes to every device, so every device carries the same number.
+        // Build 1 = the APK on the Sony, Fire TV and HONOR before this change.
+        versionCode = 15
+        versionName = "0.1.0-b15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "CLIENT_NAME", "\"Jellyflix\"")
+        buildConfigField("String", "CLIENT_NAME", "\"Notflix\"")
         buildConfigField("String", "CLIENT_VERSION", "\"0.1.0\"")
     }
 
@@ -37,18 +40,18 @@ android {
         // produce release-type APKs with consistent signatures between runs
         // so updates install in-place without an uninstall step.
         create("dev") {
-            storeFile = rootProject.file("jellyflix-dev.keystore")
+            storeFile = rootProject.file("notflix-dev.keystore")
             storePassword = "jellyflix"
             keyAlias = "jellyflix"
             keyPassword = "jellyflix"
         }
         create("release") {
-            val keystorePath = providers.environmentVariable("JELLYFLIX_KEYSTORE").orNull
+            val keystorePath = providers.environmentVariable("NOTFLIX_KEYSTORE").orNull
             if (keystorePath != null && file(keystorePath).exists()) {
                 storeFile = file(keystorePath)
-                storePassword = providers.environmentVariable("JELLYFLIX_KEYSTORE_PASSWORD").orNull
-                keyAlias = providers.environmentVariable("JELLYFLIX_KEY_ALIAS").orNull
-                keyPassword = providers.environmentVariable("JELLYFLIX_KEY_PASSWORD").orNull
+                storePassword = providers.environmentVariable("NOTFLIX_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("NOTFLIX_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("NOTFLIX_KEY_PASSWORD").orNull
             }
         }
     }
@@ -64,7 +67,7 @@ android {
             // Prefer the user-configured release signing config when the
             // keystore env vars are set; otherwise fall back to the committed
             // dev keystore so every CI release APK is installable.
-            val hasKeystore = providers.environmentVariable("JELLYFLIX_KEYSTORE").orNull
+            val hasKeystore = providers.environmentVariable("NOTFLIX_KEYSTORE").orNull
                 ?.let { file(it).exists() } ?: false
             signingConfig = if (hasKeystore) signingConfigs.getByName("release")
                             else signingConfigs.getByName("dev")
@@ -95,7 +98,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":plugin-api"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime)

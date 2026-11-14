@@ -32,7 +32,7 @@ keystore.properties
 signing.properties
 # ...except the shared development keystore that lets CI release APKs sign
 # consistently between runs. This is NOT a production identity.
-!jellyflix-dev.keystore
+!notflix-dev.keystore
 
 # Logs
 *.log

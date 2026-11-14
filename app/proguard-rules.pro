@@ -1,4 +1,4 @@
-# Jellyflix TV — R8/Proguard rules.
+# Notflix TV — R8/Proguard rules.
 
 # --- Keep source attributes + generic signatures ---
 -keepattributes SourceFile,LineNumberTable,*Annotation*,InnerClasses,Signature,Exceptions,EnclosingMethod
@@ -49,8 +49,8 @@
 -dontwarn androidx.media3.**
 
 # --- Plugin API — third-party plugin APKs DexClassLoad these types by name ---
--keep class com.jellyflix.plugin.** { *; }
--keep interface com.jellyflix.plugin.** { *; }
+-keep class com.notflix.plugin.** { *; }
+-keep interface com.notflix.plugin.** { *; }
 
 # --- OkHttp / Ktor / Coil ---
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement

@@ -1,8 +1,8 @@
-# Jellyflix TV: user stories (Netflix-style TV experience)
+# Notflix TV: user stories (Netflix-style TV experience)
 
 These stories describe the behaviour we want on an Android TV remote. They are written from the
 viewer's point of view and say whether the current build meets each one. Netflix is the reference
-for behaviour and layout only. Jellyflix keeps its own name, logo and colours.
+for behaviour and layout only. Notflix keeps its own name, logo and colours.
 
 Status key: **Done** = in the current build and checked on a Sony BRAVIA VH2. **Partial** = present
 but not right yet. **To do** = not started.
@@ -83,5 +83,5 @@ but not right yet. **To do** = not started.
 
 - Trailers and previews that play on focus.
 - Downloads, offline viewing and multiple-device sync.
-- Netflix's catalogue, branding and artwork. Jellyflix shows whatever is in the user's own Jellyfin
+- Netflix's catalogue, branding and artwork. Notflix shows whatever is in the user's own Jellyfin
   library.

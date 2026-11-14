@@ -1,2 +1,0 @@
--keep class com.jellyflix.plugin.** { *; }
--keep interface com.jellyflix.plugin.** { *; }

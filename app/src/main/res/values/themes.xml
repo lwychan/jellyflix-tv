@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Jellyflix" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Notflix" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorBackground">@color/background</item>
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Buffering spinner and other default accents use the brand red, not the system teal. -->
+        <item name="android:colorAccent">#E50914</item>
+        <item name="android:colorControlActivated">#E50914</item>
     </style>
 
-    <style name="Theme.Jellyflix.Player" parent="Theme.Jellyflix">
+    <style name="Theme.Notflix.Player" parent="Theme.Notflix">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowBackground">@android:color/black</item>

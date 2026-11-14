@@ -21,8 +21,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Jellyflix"
+rootProject.name = "Notflix"
 
 include(":app")
-include(":plugin-api")
-include(":sample-plugin")

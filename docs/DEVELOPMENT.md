@@ -24,17 +24,11 @@ want a local toolchain so edit→run is ~15 seconds instead of 3 minutes.
   3. From your laptop (same network): `adb connect <tv-ip>:5555`.
   4. The TV shows up next to the emulator in Studio's device dropdown.
 
-## Two useful run configurations
-
-Studio auto-creates one for `:app`. Right-click `:sample-plugin` → *Run* to
-install the sample plugin alongside the app. Both need to be installed for
-the plugin's "Trending" row to appear.
-
 ## Iteration tips
 
 - **Instant Run / Apply Changes** (⌃⌘R / Ctrl+F10) redeploys code changes
   without a full APK reinstall — saves ~10s per cycle.
-- **Logcat** (⌘6) filtered to tag `Jellyflix` shows our Timber output.
+- **Logcat** (⌘6) filtered to tag `Notflix` shows our Timber output.
 - **Layout Inspector** (Tools → Layout Inspector) is useful for debugging
   focus / D-pad navigation on TV.
 

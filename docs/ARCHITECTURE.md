@@ -1,49 +1,35 @@
 # Architecture
 
-## Layered module graph
+## Layers
 
 ```
 ┌──────────────────┐
 │       app        │  Compose UI, ViewModels, Activities, Hilt graph
 │                  │
 │   playback/ ─────┼──► StreamUrlResolver → Jellyfin /PlaybackInfo
-│   plugin/ ───────┼──► PluginManager (DexClassLoader)
-│   data/ ─────────┼──► JellyfinClient (SDK) + SessionStore (DataStore)
-└────────┬─────────┘
-         │ depends on
-         ▼
-┌──────────────────┐
-│   plugin-api     │  Plugin, PluginContext, hooks.*
-└──────────────────┘
-         ▲
-         │ compileOnly
-┌────────┴─────────┐
-│  sample-plugin   │  Separate APK, user-installable
+│   data/ ─────────┼──► JellyfinClient (SDK) + SessionStore / SettingsStore (DataStore)
 └──────────────────┘
 ```
 
-`plugin-api` is deliberately its own library module so third-party plugin
-authors can depend on it as a versioned artifact (eventually published to
-Maven Central) without pulling in the whole client.
+There are no plugins. The app talks only to the one home Jellyfin server.
 
 ## Data flow: playback
 
 ```
 User clicks "Play" on a Movie/Episode detail
- ├─► PlayerActivity starts with itemId
- ├─► StreamUrlResolver.resolve(itemId)
- │     ├─ buildDeviceProfile() — from MediaCodecList
+ ├─► PlayerActivity starts with itemId; reads SettingsStore once
+ ├─► StreamUrlResolver.resolve(itemId, allowDirect = preferDirectPlay)
+ │     ├─ buildDeviceProfile(): hardware video decoders + all audio decoders
  │     ├─ POST /Items/{id}/PlaybackInfo
- │     └─ pick the first MediaSource
+ │     └─ StreamRoute.choose(): DIRECT_FILE only if the server says the raw file plays;
+ │        otherwise SERVER_HLS (the server's remux or transcode URL)
  ├─► ExoPlayer.setMediaItem(stream.url)
- ├─► onVideoSizeChanged → PlaybackOptimizer.matchRefreshRate(window, format)
- └─► PluginHost.onPlaybackStart(itemId, stream)
-       └─ broadcasts to every PlaybackHook-implementing plugin
+ ├─► onVideoSizeChanged → PlaybackOptimizer.matchRefreshRate (if the setting is on)
+ └─► stall watchdog: 15 s buffering with no movement → one switch to SERVER_HLS at the same point
 ```
 
-Direct-play vs transcode is decided server-side. Our job is to honestly
-advertise the codecs the decoder actually supports so the server doesn't
-defensively transcode (which wastes CPU and loses HDR metadata).
+`StreamRoute` is a pure function (see `StreamRouteTest`), so the choice between
+the raw file and the server's stream can be tested without a device.
 
 ## Auth & session
 
@@ -54,45 +40,27 @@ on a new TV does not leak the token.
 
 `SessionViewModel` is the top-level state holder and drives the NavHost in
 `MainActivity`. Its stages — `NeedsServer / NeedsLogin / Authenticated` —
-map 1:1 to the `connect` / `login` / `home` routes.
+map to the profile picker, login and home routes.
 
-## Plugin loading
+## Settings
 
-1. `PluginManager.discover()` runs `queryIntentServices(ACTION="com.jellyflix.plugin.ENTRY", GET_META_DATA)`.
-2. For each match, it reads `plugin.entry`, `plugin.name`, `plugin.version`,
-   and `plugin.permissions` from the service `<meta-data>`.
-3. It creates a `DexClassLoader` scoped to the plugin APK's `sourceDir`,
-   pointed at `app.codeCacheDir/plugins/<pkg>` for optimised DEX.
-4. It reflectively instantiates the entry class via its no-arg constructor.
-5. The instance is kept in a map; `PluginHost` dispatches lifecycle events
-   to every instance that implements the relevant hook interface.
+`SettingsStore` holds three playback toggles, each read by the player:
 
-This in-process model means plugins run at full Kotlin speed, can call any
-public API they have a reference to, and share a heap with the host. The
-tradeoff is trust: the host MUST show the user the declared permissions
-before enabling a plugin, and plugins are expected to limit themselves to
-those permissions. A future milestone is to enforce permissions — e.g.,
-route all plugin network traffic through a host-provided OkHttp instance
-that rejects calls from plugins without `network`.
+| Setting                  | Default | Read by                                        |
+| ------------------------ | ------- | ---------------------------------------------- |
+| Prefer direct play       | on      | `StreamUrlResolver.resolve(allowDirect)`       |
+| Tunneled decoding        | off     | `DefaultTrackSelector` in `PlayerActivity`     |
+| Match display refresh    | on      | `PlaybackOptimizer.matchRefreshRate`           |
 
 ## Optimisation levers
 
 | Lever                          | Where                                           |
 | ------------------------------ | ----------------------------------------------- |
-| Tunneled decoding              | `PlaybackOptimizer.renderers`                   |
+| Tunneled decoding (setting)    | `PlayerActivity.buildPlayer`                    |
 | Refresh-rate matching          | `PlaybackOptimizer.matchRefreshRate`            |
 | Device profile from MediaCodec | `StreamUrlResolver.buildDeviceProfile`          |
 | Audio offload + float          | `DefaultRenderersFactory` flags in `renderers`  |
 | Track selection defaults       | `PlaybackOptimizer.trackParameters`             |
+| Stall fallback to server HLS   | `PlayerActivity.startStallWatchdog`             |
 | MediaSession / Now Playing     | `PlaybackService`                               |
 | Seek increments (10s / 30s)    | `ExoPlayer.Builder` in `PlayerActivity`         |
-
-## Things explicitly deferred
-
-- Settings UI for toggling playback prefs (tunneling off, force transcode).
-- Details screen (episode list, cast, similar).
-- Quick Connect.
-- 4K HDR track preferences + Dolby Vision fallback policy.
-- Trickplay thumbnail scrubbing (Jellyfin 10.9+).
-- Chapter-based skip intro / skip credits UI.
-- In-app plugin browser ("store").

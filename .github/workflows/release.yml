@@ -53,10 +53,10 @@ jobs:
       - name: Build signed release APKs
         if: steps.keystore.outputs.signed == 'true'
         env:
-          JELLYFLIX_KEYSTORE: ${{ steps.keystore.outputs.path }}
-          JELLYFLIX_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          JELLYFLIX_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          JELLYFLIX_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          NOTFLIX_KEYSTORE: ${{ steps.keystore.outputs.path }}
+          NOTFLIX_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          NOTFLIX_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          NOTFLIX_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :sample-plugin:assembleRelease --no-daemon --stacktrace
 
       - name: Build unsigned (debug) APKs fallback
@@ -86,7 +86,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
-          name: Jellyflix ${{ steps.tag.outputs.name }}
+          name: Notflix ${{ steps.tag.outputs.name }}
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           generate_release_notes: true
@@ -95,8 +95,8 @@ jobs:
 
             1. Enable Developer options → ADB debugging on your TV.
             2. `adb connect <tv-ip>:5555`
-            3. `adb install jellyflix-app-*.apk`
-            4. (Optional) Install `jellyflix-sample-plugin-*.apk` for the reference plugin.
+            3. `adb install notflix-app-*.apk`
+            4. (Optional) Install `notflix-sample-plugin-*.apk` for the reference plugin.
 
             If you don't have `adb`, sideload via a file manager (Send files to TV, X-plore, etc.) from a USB drive.
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Jellyflix</string>
+    <string name="app_name">Notflix</string>
 
     <!-- Server connect -->
     <string name="connect_title">Connect to Jellyfin</string>
