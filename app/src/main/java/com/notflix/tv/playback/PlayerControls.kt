@@ -38,10 +38,14 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,7 +63,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -191,6 +198,8 @@ class PlayerActions(
     val onPickEpisode: (BaseItemDto) -> Unit,
     /** Left/right seek. True is forward. */
     val onSeekStep: (forward: Boolean) -> Unit,
+    /** Touch seek from the scrub bar, to an absolute position. */
+    val onSeekTo: (positionMs: Long) -> Unit,
 )
 
 /** Keeps [ui] in step with [player] while the overlay exists. */
@@ -303,6 +312,11 @@ fun PlayerControlsOverlay(
                     modifier = Modifier.align(Alignment.TopStart),
                 )
 
+                FinishesLabel(
+                    ui = ui,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(end = 44.dp, top = 76.dp),
+                )
+
                 if (episodesOpen && now != null && now.episodes.isNotEmpty()) {
                     EpisodesPanel(
                         now = now,
@@ -388,6 +402,31 @@ private fun TopBar(
     }
 }
 
+/**
+ * "Finishes 23:55": the local time the title ends if it plays on from here. Follows the device's
+ * 12/24-hour setting, and moves later while paused because the clock keeps running.
+ */
+@Composable
+private fun FinishesLabel(ui: PlaybackUi, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val finish = finishTimeMs(nowMs, ui.positionMs, ui.durationMs) ?: return
+    val clock = remember(context) { android.text.format.DateFormat.getTimeFormat(context) }
+    Text(
+        "Finishes ${clock.format(java.util.Date(finish))}",
+        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+        color = Color(0xFFE5E5E5),
+        maxLines = 1,
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun BottomControls(
     ui: PlaybackUi,
@@ -415,6 +454,7 @@ private fun BottomControls(
             positionMs = ui.positionMs,
             durationMs = ui.durationMs,
             chapterFractions = chapterFractions,
+            onSeekTo = actions.onSeekTo,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(20.dp))
@@ -427,16 +467,46 @@ private fun BottomControls(
     }
 }
 
-/** Red progress bar with the current time above the knob and a tick at each chapter. */
+/**
+ * Red progress bar with the current time above the knob and a tick at each chapter.
+ * Touch: tap a point to jump there, or drag the knob; a drag seeks when the finger lifts.
+ */
 @Composable
 private fun ScrubBar(
     positionMs: Long,
     durationMs: Long,
     chapterFractions: List<Float>,
+    onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    BoxWithConstraints(modifier.height(44.dp)) {
+    val playedFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val fraction = dragFraction ?: playedFraction
+    var widthPx by remember { mutableFloatStateOf(0f) }
+    fun fractionAt(x: Float): Float? = if (widthPx > 0f) (x / widthPx).coerceIn(0f, 1f) else null
+    fun seekTo(f: Float) = onSeekTo((f * durationMs).toLong())
+    BoxWithConstraints(
+        modifier
+            .height(44.dp)
+            .onSizeChanged { widthPx = it.width.toFloat() }
+            .pointerInput(durationMs) {
+                detectTapGestures(onTap = { at ->
+                    val f = fractionAt(at.x)
+                    if (f != null && durationMs > 0) seekTo(f)
+                })
+            }
+            .pointerInput(durationMs) {
+                detectHorizontalDragGestures(
+                    onDragStart = { at -> dragFraction = fractionAt(at.x) },
+                    onHorizontalDrag = { change, _ -> fractionAt(change.position.x)?.let { dragFraction = it } },
+                    onDragEnd = {
+                        dragFraction?.let { if (durationMs > 0) seekTo(it) }
+                        dragFraction = null
+                    },
+                    onDragCancel = { dragFraction = null },
+                )
+            },
+    ) {
         val barWidth = maxWidth
         Text(
             formatTime(positionMs),

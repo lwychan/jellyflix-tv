@@ -21,8 +21,8 @@ android {
         // Bump versionCode and versionName on every build that gets pushed to any device.
         // The same APK goes to every device, so every device carries the same number.
         // Build 1 = the APK on the Sony, Fire TV and HONOR before this change.
-        versionCode = 15
-        versionName = "0.1.0-b15"
+        versionCode = 17
+        versionName = "0.1.0-b17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

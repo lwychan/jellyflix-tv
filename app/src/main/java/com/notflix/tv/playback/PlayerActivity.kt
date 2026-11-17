@@ -25,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -296,6 +298,19 @@ class PlayerActivity : ComponentActivity() {
                 update = { it.player = exo },
             )
 
+            // Touch: a tap on the picture brings the controls up when they are hidden and hides
+            // them when they are up. This layer sits under the overlay, so a tap on one of the
+            // overlay's buttons goes to that button and never reaches it.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            if (controlsVisible) controlsVisible = false else inputTick++
+                        })
+                    },
+            )
+
             PlayerControlsOverlay(
                 visible = controlsVisible,
                 now = now,
@@ -332,6 +347,10 @@ class PlayerActivity : ComponentActivity() {
                         inputTick++
                         if (forward) exo.seekForward() else exo.seekBack()
                         flashSeek(forward)
+                    },
+                    onSeekTo = { positionMs ->
+                        inputTick++
+                        exo.seekTo(positionMs.coerceAtLeast(0))
                     },
                 ),
                 focus = focus,
@@ -475,8 +494,15 @@ class PlayerActivity : ComponentActivity() {
         inputTick++
         if (!::exo.isInitialized) return super.onKeyDown(keyCode, event)
         when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+            // Centre key, plus the buttons a gamepad or a keyboard sends in its place.
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_SPACE -> {
                 togglePlay()
+                return true
+            }
+            // Gamepad B is Back: closes a panel first, then the player.
+            KeyEvent.KEYCODE_BUTTON_B -> {
+                onBackPressedDispatcher.onBackPressed()
                 return true
             }
             // Remotes with separate Play and Pause buttons.
