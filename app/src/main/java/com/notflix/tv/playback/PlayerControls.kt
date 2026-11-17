@@ -420,7 +420,7 @@ private fun FinishesLabel(ui: PlaybackUi, modifier: Modifier = Modifier) {
     val clock = remember(context) { android.text.format.DateFormat.getTimeFormat(context) }
     Text(
         "Finishes ${clock.format(java.util.Date(finish))}",
-        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+        style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
         color = Color(0xFFE5E5E5),
         maxLines = 1,
         modifier = modifier,
