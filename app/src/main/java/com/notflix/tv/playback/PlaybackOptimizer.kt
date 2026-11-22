@@ -45,6 +45,8 @@ object PlaybackOptimizer {
         val caps = AudioCapabilities.getCapabilities(context, AudioAttributes.DEFAULT, null)
         return TrackSelectionParameters.Builder(context)
             .setMaxAudioChannelCount(if (caps.maxChannelCount > 0) caps.maxChannelCount else 8)
+            // A file with several languages starts in English, whatever track it flags as default.
+            .setPreferredAudioLanguages("eng")
             // Subtitles start off, as on Netflix: don't auto-select "forced" subtitle tracks.
             .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)

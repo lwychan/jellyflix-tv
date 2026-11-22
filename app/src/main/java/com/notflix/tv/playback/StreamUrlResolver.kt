@@ -14,6 +14,8 @@ import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.DirectPlayProfile
 import org.jellyfin.sdk.model.api.DlnaProfileType
 import org.jellyfin.sdk.model.api.MediaSourceInfo
+import org.jellyfin.sdk.model.api.MediaStream
+import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlaybackInfoDto
 
 /** How the player fetches the title. */
@@ -66,13 +68,25 @@ class StreamUrlResolver @Inject constructor(
     private val client: JellyfinClient,
     private val session: SessionStore,
 ) {
-    data class Stream(val url: String, val mediaSource: MediaSourceInfo, val isDirectPlay: Boolean)
+    /**
+     * [audioTracks] are the title's audio tracks on the server. A server HLS stream carries only
+     * one of them, [audioIndex]; the player can't switch inside it, so it asks for a new stream.
+     */
+    data class Stream(
+        val url: String,
+        val mediaSource: MediaSourceInfo,
+        val isDirectPlay: Boolean,
+        val audioTracks: List<ServerAudio> = emptyList(),
+        val audioIndex: Int? = null,
+    )
 
     /**
      * @param allowDirect false when the user has turned direct play off, or after a stall
      *   fallback. The server is then asked for HLS only.
+     * @param audioIndex the server audio track for an HLS stream. Null picks English, else the
+     *   server's default.
      */
-    suspend fun resolve(itemId: UUID, allowDirect: Boolean = true): Stream {
+    suspend fun resolve(itemId: UUID, allowDirect: Boolean = true, audioIndex: Int? = null): Stream {
         val api = client.api()
         val s = session.session.first()
         val userId = UUID.fromString(requireNotNull(s.userId))
@@ -97,7 +111,13 @@ class StreamUrlResolver @Inject constructor(
 
         val baseUrl = requireNotNull(s.serverUrl)
         val token = requireNotNull(s.accessToken)
-        val url = StreamRoute.url(
+        val audioTracks = serverAudioTracks(chosen.mediaStreams)
+        val hlsAudio = if (route == StreamRoute.SERVER_HLS) {
+            audioIndex ?: preferredAudioIndex(audioTracks, chosen.defaultAudioStreamIndex)
+        } else {
+            null
+        }
+        val routeUrl = StreamRoute.url(
             route = route,
             baseUrl = baseUrl,
             itemId = itemId,
@@ -105,14 +125,35 @@ class StreamUrlResolver @Inject constructor(
             token = token,
             transcodingUrl = chosen.transcodingUrl,
         )
+        val url = if (hlsAudio != null) withAudioStreamIndex(routeUrl, hlsAudio) else routeUrl
         // Log the shape of the URL with the token redacted, to diagnose playback failures on-device.
         android.util.Log.d(
             "NotflixPlayer",
             "stream route=$route allowDirect=$allowDirect supportsDirectPlay=${chosen.supportsDirectPlay} " +
                 "supportsDirectStream=${chosen.supportsDirectStream} url=" + url.replace(token, "<token>"),
         )
-        return Stream(url = url, mediaSource = chosen, isDirectPlay = route == StreamRoute.DIRECT_FILE)
+        return Stream(
+            url = url,
+            mediaSource = chosen,
+            isDirectPlay = route == StreamRoute.DIRECT_FILE,
+            audioTracks = audioTracks,
+            audioIndex = hlsAudio,
+        )
     }
+
+    /** The title's audio tracks as the server lists them. */
+    private fun serverAudioTracks(streams: List<MediaStream>?): List<ServerAudio> =
+        streams.orEmpty()
+            .filter { it.type == MediaStreamType.AUDIO }
+            .mapNotNull { s ->
+                val index = s.index ?: return@mapNotNull null
+                ServerAudio(
+                    index = index,
+                    language = s.language,
+                    label = s.displayTitle ?: s.title ?: s.language ?: "Track $index",
+                    descriptive = listOfNotNull(s.title, s.displayTitle).any { it.contains("descriptive", ignoreCase = true) },
+                )
+            }
 
     /**
      * Builds a device profile from the hardware video decoders and all audio decoders the

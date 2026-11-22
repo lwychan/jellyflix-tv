@@ -130,6 +130,14 @@ class PlayerActivity : ComponentActivity() {
     private var panelChoices by mutableStateOf<List<TrackChoice>>(emptyList())
     private var episodesOpen by mutableStateOf(false)
 
+    /**
+     * The title's audio tracks on the server, set only while it plays as server HLS. That stream
+     * holds one track, so the player alone has nothing to switch between; the Audio picker lists
+     * these instead and asks the server for a new stream. [serverAudioIndex] is the one playing.
+     */
+    private var serverAudio by mutableStateOf<List<ServerAudio>>(emptyList())
+    private var serverAudioIndex by mutableStateOf<Int?>(null)
+
     /** Read by [onKeyDown]; false while a panel owns left/right. */
     private var seekKeysAllowed = true
 
@@ -172,6 +180,11 @@ class PlayerActivity : ComponentActivity() {
 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) ended = true
+                updateKeepScreenOn()
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                updateKeepScreenOn()
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -211,6 +224,8 @@ class PlayerActivity : ComponentActivity() {
                     playMethod = if (stream.isDirectPlay) PlayMethod.DIRECT_PLAY else PlayMethod.TRANSCODE,
                 )
                 session = s
+                serverAudio = if (stream.isDirectPlay) emptyList() else stream.audioTracks
+                serverAudioIndex = stream.audioIndex
                 exo.setMediaItem(
                     MediaItem.Builder()
                         .setUri(stream.url)
@@ -332,10 +347,17 @@ class PlayerActivity : ComponentActivity() {
                         }
                     },
                     onOpenAudio = {
-                        val audio = audioChoicesOrNone(exo)
-                        if (audio.size > 1) {
-                            panelChoices = audio
+                        if (serverAudio.size > 1) {
+                            panelChoices = serverAudio.map {
+                                TrackChoice(it.label, group = null, trackIndex = it.index, selected = it.index == serverAudioIndex)
+                            }
                             openPanel = TrackKind.AUDIO
+                        } else {
+                            val audio = audioChoicesOrNone(exo)
+                            if (audio.size > 1) {
+                                panelChoices = audio
+                                openPanel = TrackKind.AUDIO
+                            }
                         }
                     },
                     onSkip = { span -> skip(span) },
@@ -379,11 +401,15 @@ class PlayerActivity : ComponentActivity() {
                         choices = panelChoices,
                         firstItemFocus = panelFocus,
                         onPick = { choice ->
-                            selectTrack(
-                                exo,
-                                if (kind == TrackKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO,
-                                choice,
-                            )
+                            if (kind == TrackKind.AUDIO && serverAudio.size > 1) {
+                                switchServerAudio(choice.trackIndex)
+                            } else {
+                                selectTrack(
+                                    exo,
+                                    if (kind == TrackKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO,
+                                    choice,
+                                )
+                            }
                             openPanel = null
                         },
                         onDismiss = { openPanel = null },
@@ -406,6 +432,8 @@ class PlayerActivity : ComponentActivity() {
         firstFrameShown = false
         // Drop the old title's skip ranges and next-episode link until the new ones load.
         now = null
+        serverAudio = emptyList()
+        serverAudioIndex = null
         fallbackTitle = title
         openedAt = android.os.SystemClock.elapsedRealtime()
         target = Target(id, startMs, ++switches)
@@ -444,6 +472,42 @@ class PlayerActivity : ComponentActivity() {
                     fallbackFor = id
                     fallBackToHls(id, pos)
                 }
+            }
+        }
+    }
+
+    /**
+     * Keeps the TV from starting its screensaver, and pausing the film, while the title plays or
+     * buffers. Nothing keeps the screen on by itself here, so a Fire TV started its own
+     * screensaver a few minutes into a film. A paused title lets the screen sleep as usual.
+     */
+    private fun updateKeepScreenOn() {
+        val active = exo.playWhenReady &&
+            exo.playbackState != Player.STATE_IDLE &&
+            exo.playbackState != Player.STATE_ENDED
+        if (active) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    /** Plays the same title on from here with server audio track [index], as a new HLS stream. */
+    private fun switchServerAudio(index: Int) {
+        val id = target?.id ?: return
+        val atMs = exo.currentPosition
+        lifecycleScope.launch {
+            try {
+                val stream = resolver.resolve(id, allowDirect = false, audioIndex = index)
+                serverAudioIndex = stream.audioIndex
+                exo.setMediaItem(MediaItem.fromUri(stream.url), atMs)
+                exo.prepare()
+                exo.playWhenReady = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.e(TAG, "Audio switch failed", e)
+                playbackError = "Couldn't change audio: ${e.message ?: e.javaClass.simpleName}"
             }
         }
     }
